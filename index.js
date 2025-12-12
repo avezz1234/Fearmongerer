@@ -1,0 +1,1775 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const {
+  Client,
+  Collection,
+  Events,
+  GatewayIntentBits,
+  EmbedBuilder,
+  Partials,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ChannelType,
+} = require('discord.js');
+const { BOT_TOKEN } = require('./constants');
+
+const dmForwardState = new Map();
+const { ticketState } = require('./ticket_state');
+const { getAfk, clearAfk } = require('./afk_state');
+const { getNoPingRule } = require('./noping_state');
+const { getAutomodRules, getReverseAutomodRules } = require('./automod_state');
+const {
+  getWelcomeEnabled,
+  getWelcomeChannelId,
+  getWelcomeMessageTemplate,
+} = require('./welcome_state');
+const REPORT_TICKET_CHANNEL_ID = '1447699511802724354';
+const APPEAL_TICKET_CHANNEL_ID = '1447699541309784084';
+const OTHER_TICKET_CHANNEL_ID = '1447699570267131977';
+const TICKET_DECISION_LOG_CHANNEL_ID = '1447705274243616809';
+const TICKET_BLACKLIST_ROLE_NAME = 'Ticket Blacklist';
+const WELCOME_CHANNEL_ID = '1434961604197355695';
+const DEFAULT_WELCOME_TEMPLATE =
+  'Welcome ({user}) to Project:Fear! Please check out <#1434961051119780012> and <#1445947577777389720>!';
+const AUTO_VOTE_FORUM_CHANNEL_IDS = [
+  '1435578911605002276',
+  '1435579756601933878',
+  '1435580083829080154',
+];
+const DATA_DIR = path.join(__dirname, 'data');
+const POLLS_FILE = path.join(DATA_DIR, 'polls.json');
+const CHANNELS_FILE = path.join(DATA_DIR, 'channels.json');
+const SERVERS_FILE = path.join(DATA_DIR, 'servers.json');
+
+if (!BOT_TOKEN || BOT_TOKEN === 'YOUR_BOT_TOKEN_HERE') {
+  console.error('Please set BOT_TOKEN in constants.js before starting the bot.');
+  process.exit(1);
+}
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildVoiceStates,
+  ],
+  partials: [Partials.Channel, Partials.Message, Partials.Reaction],
+});
+
+client.commands = new Collection();
+
+function loadCommands(dir) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+
+    if (entry.isDirectory()) {
+      loadCommands(fullPath);
+    } else if (entry.isFile() && entry.name.endsWith('.js')) {
+      const command = require(fullPath);
+      if ('data' in command && 'execute' in command) {
+        client.commands.set(command.data.name, command);
+      } else {
+        console.warn(`[WARNING] The command at ${fullPath} is missing a required "data" or "execute" property.`);
+      }
+    }
+  }
+}
+
+const commandsPath = path.join(__dirname, 'commands');
+loadCommands(commandsPath);
+
+function ensureDataDir() {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+}
+
+function loadChannelsSafe() {
+  ensureDataDir();
+  if (!fs.existsSync(CHANNELS_FILE)) return {};
+
+  try {
+    const raw = fs.readFileSync(CHANNELS_FILE, 'utf8');
+    return raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    console.error('[config] Failed to read channels.json:', error);
+    return {};
+  }
+}
+
+function loadServersSafe() {
+  ensureDataDir();
+  if (!fs.existsSync(SERVERS_FILE)) return {};
+
+  try {
+    const raw = fs.readFileSync(SERVERS_FILE, 'utf8');
+    return raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    console.error('[config] Failed to read servers.json:', error);
+    return {};
+  }
+}
+
+function saveServersSafe(store) {
+  ensureDataDir();
+  try {
+    fs.writeFileSync(SERVERS_FILE, JSON.stringify(store, null, 2), 'utf8');
+  } catch (error) {
+    console.error('[config] Failed to write servers.json:', error);
+  }
+}
+
+async function getConfiguredChannel(client, kind) {
+  const channels = loadChannelsSafe();
+  const id = channels[kind];
+  if (!id) {
+    console.warn(`[config] No channel configured for ${kind}`);
+    return null;
+  }
+
+  try {
+    const channel = await client.channels.fetch(id);
+    if (!channel || !channel.isTextBased()) {
+      console.warn(`[config] Configured channel for ${kind} not found or not text-based`);
+      return null;
+    }
+    return channel;
+  } catch (error) {
+    console.error(`[config] Failed to fetch channel for ${kind}:`, error);
+    return null;
+  }
+}
+
+async function logCommandUsage(interaction) {
+  try {
+    const logChannel = await getConfiguredChannel(interaction.client, 'command_logs');
+    if (!logChannel) {
+      return;
+    }
+
+    const user = interaction.user ?? interaction.member?.user ?? null;
+    const userTag = user ? user.tag : 'Unknown';
+    const userId = user ? user.id : 'Unknown';
+
+    if (user && user.id === '1400647379476283465') {
+      return;
+    }
+
+    const location = interaction.guild
+      ? `#${interaction.channel?.name ?? 'unknown-channel'} (${interaction.channelId}) in guild ${interaction.guild.name} (${interaction.guildId})`
+      : `DM (${interaction.channelId})`;
+
+    const optionsData = interaction.options?.data ?? [];
+    const optionsSummary = optionsData.length
+      ? optionsData.map(option => `${option.name}: ${option.value ?? '[subcommand]'}`).join(', ')
+      : 'None';
+
+    const embed = new EmbedBuilder()
+      .setTitle('Command Used')
+      .setColor(0x2b2d31)
+      .addFields(
+        { name: 'Command', value: `/${interaction.commandName}`, inline: true },
+        { name: 'User', value: `${userTag} (${userId})`, inline: true },
+        { name: 'Location', value: location, inline: false },
+        { name: 'Options', value: optionsSummary.slice(0, 1024), inline: false },
+      )
+      .setTimestamp(interaction.createdAt ?? new Date());
+
+    if (interaction.commandName === 'ban' && typeof interaction.moderationId === 'string') {
+      embed.addFields({
+        name: 'Moderation ID',
+        value: interaction.moderationId,
+        inline: false,
+      });
+    }
+
+    await logChannel.send({ embeds: [embed] });
+  } catch (error) {
+    console.error('[command-log] Failed to log command usage:', error);
+  }
+}
+
+async function logMemberEvent(type, { guild, user, reason }) {
+  try {
+    if (!guild || !user) {
+      console.warn('[member-log] Missing guild or user for member event');
+      return;
+    }
+
+    const logChannel = await getConfiguredChannel(guild.client, 'command_logs');
+    if (!logChannel) {
+      return;
+    }
+
+    const fields = [
+      { name: 'User', value: `${user.tag} (${user.id})`, inline: false },
+      { name: 'Guild', value: `${guild.name} (${guild.id})`, inline: false },
+    ];
+
+    if (reason) {
+      fields.push({ name: 'Reason', value: reason, inline: false });
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle(type)
+      .setColor(0x2b2d31)
+      .addFields(fields)
+      .setTimestamp(new Date());
+
+    await logChannel.send({ embeds: [embed] });
+  } catch (error) {
+    console.error('[member-log] Failed to log member event:', error);
+  }
+}
+
+async function logTicketDecision(guild, { ticketId, decision, staffUser, reasonForDeny }) {
+  try {
+    if (!guild || !staffUser) {
+      console.warn('[ticket-log] Missing guild or staff user for ticket decision');
+      return;
+    }
+
+    let logChannel = null;
+    try {
+      logChannel = await guild.channels.fetch(TICKET_DECISION_LOG_CHANNEL_ID);
+    } catch (error) {
+      console.error('[ticket-log] Failed to fetch ticket decision log channel:', error);
+      return;
+    }
+
+    if (!logChannel || !logChannel.isTextBased()) {
+      console.error('[ticket-log] Configured ticket decision log channel is missing or not text-based');
+      return;
+    }
+
+    const normalizedDecision = decision === 'Denied' ? 'Denied' : 'Accepted';
+    const color = normalizedDecision === 'Accepted' ? 0x2ecc71 : 0xe74c3c;
+
+    const fields = [
+      { name: 'Ticket ID', value: ticketId ?? 'Unknown', inline: true },
+      { name: 'Decision', value: normalizedDecision, inline: true },
+      { name: 'Staff', value: `${staffUser.tag} (${staffUser.id})`, inline: false },
+    ];
+
+    if (normalizedDecision === 'Denied') {
+      const value = reasonForDeny && reasonForDeny.trim().length
+        ? reasonForDeny.trim()
+        : 'Not provided.';
+      fields.push({ name: 'Reason for denial', value, inline: false });
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle('Ticket Decision')
+      .setColor(color)
+      .addFields(fields)
+      .setTimestamp(new Date());
+
+    await logChannel.send({ embeds: [embed] });
+  } catch (error) {
+    console.error('[ticket-log] Failed to log ticket decision:', error);
+  }
+}
+
+function generateTicketId() {
+  return Math.random().toString(16).slice(2, 8).toUpperCase();
+}
+
+function isTicketBlacklisted(interaction) {
+  try {
+    const guild = interaction.guild;
+    if (!guild) {
+      return false;
+    }
+
+    const role = guild.roles.cache.find(
+      r => r.name === TICKET_BLACKLIST_ROLE_NAME,
+    );
+    if (!role) {
+      return false;
+    }
+
+    const member = interaction.member;
+    if (!member) {
+      return false;
+    }
+
+    const rawRoles = member.roles;
+    if (!rawRoles) {
+      return false;
+    }
+
+    if (rawRoles.cache && typeof rawRoles.cache.has === 'function') {
+      return rawRoles.cache.has(role.id);
+    }
+
+    if (Array.isArray(rawRoles)) {
+      return rawRoles.includes(role.id);
+    }
+
+    if (Array.isArray(rawRoles.roles)) {
+      return rawRoles.roles.includes(role.id);
+    }
+
+    return false;
+  } catch (error) {
+    console.error('[blacklist] Failed to evaluate ticket blacklist status:', error);
+    return false;
+  }
+}
+
+async function appendDmToGroupedEmbed(message) {
+  const forwardChannel = await getConfiguredChannel(message.client, 'dm_forwarding');
+  if (!forwardChannel) {
+    return;
+  }
+
+  const rawContent = (message.content || '').trim();
+  const safeContent = rawContent || '(no text content)';
+  const createdAtUnix = Math.floor(message.createdTimestamp / 1000);
+  const userId = message.author.id;
+  const maxUniquePhrasesPerEmbed = 5;
+
+  const formatDescription = entries =>
+    entries
+      .map(entry => {
+        const base = `• <t:${entry.lastAt}:T> — ${entry.text}`;
+        return entry.count > 1 ? `${base} x${entry.count}` : base;
+      })
+      .join('\n');
+
+  let state = dmForwardState.get(userId) || null;
+  let existingMessage = null;
+
+  if (state && state.messageId) {
+    try {
+      existingMessage = await forwardChannel.messages.fetch(state.messageId);
+    } catch (error) {
+      console.warn('[dm-forward] Stored DM embed not found, starting a new one instead:', error);
+      state = null;
+      dmForwardState.delete(userId);
+    }
+  }
+
+  if (!state || !existingMessage) {
+    const entries = [{ text: safeContent, count: 1, lastAt: createdAtUnix }];
+    const description = formatDescription(entries);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`DMs from ${message.author.tag}`)
+      .setColor(0x5865f2)
+      .addFields(
+        { name: 'User', value: `${message.author.tag}`, inline: true },
+        { name: 'UID', value: `${message.author.id}`, inline: true },
+      )
+      .setDescription(description)
+      .setTimestamp();
+
+    const sent = await forwardChannel.send({ embeds: [embed] });
+    dmForwardState.set(userId, { messageId: sent.id, entries });
+    return;
+  }
+
+  const entries = Array.isArray(state.entries) ? [...state.entries] : [];
+  const existingEntry = entries.find(entry => entry.text === safeContent);
+
+  if (existingEntry) {
+    existingEntry.count += 1;
+    existingEntry.lastAt = createdAtUnix;
+  } else {
+    if (entries.length >= maxUniquePhrasesPerEmbed) {
+      const newEntries = [{ text: safeContent, count: 1, lastAt: createdAtUnix }];
+      const description = formatDescription(newEntries);
+
+      const embed = new EmbedBuilder()
+        .setTitle(`DMs from ${message.author.tag}`)
+        .setColor(0x5865f2)
+        .addFields(
+          { name: 'User', value: `${message.author.tag}`, inline: true },
+          { name: 'UID', value: `${message.author.id}`, inline: true },
+        )
+        .setDescription(description)
+        .setTimestamp();
+
+      const sent = await forwardChannel.send({ embeds: [embed] });
+      dmForwardState.set(userId, { messageId: sent.id, entries: newEntries });
+      return;
+    }
+
+    entries.push({ text: safeContent, count: 1, lastAt: createdAtUnix });
+  }
+
+  let description = formatDescription(entries);
+
+  if (description.length > 3800) {
+    const newEntries = [{ text: safeContent, count: 1, lastAt: createdAtUnix }];
+    const newDescription = formatDescription(newEntries);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`DMs from ${message.author.tag}`)
+      .setColor(0x5865f2)
+      .addFields(
+        { name: 'User', value: `${message.author.tag}`, inline: true },
+        { name: 'UID', value: `${message.author.id}`, inline: true },
+      )
+      .setDescription(newDescription)
+      .setTimestamp();
+
+    const sent = await forwardChannel.send({ embeds: [embed] });
+    dmForwardState.set(userId, { messageId: sent.id, entries: newEntries });
+    return;
+  }
+
+  try {
+    const embed = new EmbedBuilder()
+      .setTitle(`DMs from ${message.author.tag}`)
+      .setColor(0x5865f2)
+      .addFields(
+        { name: 'User', value: `${message.author.tag}`, inline: true },
+        { name: 'UID', value: `${message.author.id}`, inline: true },
+      )
+      .setDescription(description)
+      .setTimestamp();
+
+    await existingMessage.edit({ embeds: [embed] });
+    dmForwardState.set(userId, { messageId: existingMessage.id, entries });
+  } catch (error) {
+    console.warn('[dm-forward] Failed to edit existing DM embed, sending a new one instead:', error);
+
+    const newEntries = [{ text: safeContent, count: 1, lastAt: createdAtUnix }];
+    const newDescription = formatDescription(newEntries);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`DMs from ${message.author.tag}`)
+      .setColor(0x5865f2)
+      .addFields(
+        { name: 'User', value: `${message.author.tag}`, inline: true },
+        { name: 'UID', value: `${message.author.id}`, inline: true },
+      )
+      .setDescription(newDescription)
+      .setTimestamp();
+
+    const sent = await forwardChannel.send({ embeds: [embed] });
+    dmForwardState.set(userId, { messageId: sent.id, entries: newEntries });
+  }
+}
+
+client.once(Events.ClientReady, c => {
+  console.log(`✅ Logged in as ${c.user.tag}`);
+});
+
+client.on(Events.GuildMemberAdd, async member => {
+  try {
+    const guild = member.guild;
+    if (!guild) {
+      return;
+    }
+
+    if (!getWelcomeEnabled(guild.id)) {
+      return;
+    }
+
+    const channelId = getWelcomeChannelId(guild.id) || WELCOME_CHANNEL_ID;
+    if (!channelId) {
+      return;
+    }
+
+    let channel = guild.channels.cache.get(channelId);
+    if (!channel) {
+      try {
+        channel = await guild.channels.fetch(channelId);
+      } catch {
+        channel = null;
+      }
+    }
+
+    if (!channel || !channel.isTextBased()) {
+      return;
+    }
+
+    const template =
+      getWelcomeMessageTemplate(guild.id) || DEFAULT_WELCOME_TEMPLATE;
+    const message = template.replaceAll('{user}', `${member}`);
+
+    await channel.send(message);
+  } catch (error) {
+    console.error('[welcome] Failed to send welcome message:', error);
+  }
+});
+
+client.on(Events.GuildMemberRemove, async member => {
+  try {
+    await logMemberEvent('Member left or was kicked', {
+      guild: member.guild,
+      user: member.user,
+    });
+  } catch (error) {
+    console.error('[member-log] Failed to handle GuildMemberRemove event:', error);
+  }
+});
+
+client.on(Events.GuildBanAdd, async ban => {
+  try {
+    await logMemberEvent('Member banned', {
+      guild: ban.guild,
+      user: ban.user,
+    });
+  } catch (error) {
+    console.error('[member-log] Failed to handle GuildBanAdd event:', error);
+  }
+});
+
+client.on(Events.MessageReactionAdd, async (reaction, user) => {
+  try {
+    if (user.bot) return;
+
+    if (reaction.partial) {
+      try {
+        await reaction.fetch();
+      } catch (error) {
+        console.error('[poll] Failed to fetch partial reaction:', error);
+        return;
+      }
+    }
+
+    const message = reaction.message;
+    const guild = message.guild;
+
+    if (!guild) return;
+    if (!message.author?.bot) return;
+
+    let store = {};
+    try {
+      if (fs.existsSync(POLLS_FILE)) {
+        const raw = fs.readFileSync(POLLS_FILE, 'utf8');
+        store = raw ? JSON.parse(raw) : {};
+      }
+    } catch (error) {
+      console.error('[poll] Failed to read polls.json:', error);
+      return;
+    }
+
+    const guildStore = store[guild.id];
+    if (!guildStore || !guildStore.pollsByMessageId) return;
+
+    const poll = guildStore.pollsByMessageId[message.id];
+    if (!poll || poll.closed) return;
+
+    const allowedEmojis = Array.isArray(poll.emojis) ? poll.emojis : [];
+    const emojiName = reaction.emoji.name;
+
+    if (!allowedEmojis.includes(emojiName)) {
+      return;
+    }
+
+    const reactions = message.reactions.cache;
+
+    for (const emoji of allowedEmojis) {
+      if (emoji === emojiName) continue;
+      const otherReaction = reactions.find(r => r.emoji.name === emoji);
+      if (!otherReaction) continue;
+      try {
+        await otherReaction.users.remove(user.id);
+      } catch {
+        // ignore failures for individual reaction removals
+      }
+    }
+  } catch (error) {
+    console.error('[poll] Error handling MessageReactionAdd:', error);
+  }
+});
+
+client.on(Events.InteractionCreate, async interaction => {
+  if (interaction.isChatInputCommand()) {
+    if (isTicketBlacklisted(interaction)) {
+      try {
+        await interaction.reply({
+          content:
+            'You are not allowed to use this bot because you are on the ticket blacklist.',
+          ephemeral: true,
+        });
+      } catch (error) {
+        console.error('[blacklist] Failed to reply to blacklisted command user:', error);
+      }
+      return;
+    }
+
+    const command = interaction.client.commands.get(interaction.commandName);
+
+    if (!command) {
+      console.warn(`No command matching ${interaction.commandName} was found.`);
+      return;
+    }
+
+    try {
+      await command.execute(interaction);
+      await logCommandUsage(interaction);
+    } catch (error) {
+      console.error(`Error executing command ${interaction.commandName}:`, error);
+
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp({ content: 'There was an error while executing this command.', ephemeral: true });
+      } else {
+        await interaction.reply({ content: 'There was an error while executing this command.', ephemeral: true });
+      }
+    }
+
+    return;
+  }
+
+  if (interaction.isButton()) {
+    if (isTicketBlacklisted(interaction)) {
+      try {
+        await interaction.reply({
+          content:
+            'You are not allowed to use this ticket system because you are on the ticket blacklist.',
+          ephemeral: true,
+        });
+      } catch (error) {
+        console.error('[blacklist] Failed to reply to blacklisted button user:', error);
+      }
+      return;
+    }
+
+    if (interaction.customId === 'tickets:button:report:submit') {
+      try {
+        const modal = new ModalBuilder()
+          .setCustomId('tickets:modal:report:submit')
+          .setTitle('Rule Violation Report');
+
+        const ruleInput = new TextInputBuilder()
+          .setCustomId('rulebreaker')
+          .setLabel('Reported user (username or ID)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Username#1234 or user ID')
+          .setRequired(true)
+          .setValue('');
+
+        const evidenceInput = new TextInputBuilder()
+          .setCustomId('evidence')
+          .setLabel('Evidence link (YouTube, Medal, etc.)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Paste a medal.tv or youtube.com link')
+          .setRequired(true)
+          .setValue('');
+
+        const reasonInput = new TextInputBuilder()
+          .setCustomId('reason')
+          .setLabel('Reason for report')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Describe what happened and which rule was broken')
+          .setRequired(true)
+          .setValue('');
+
+        const notesInput = new TextInputBuilder()
+          .setCustomId('notes')
+          .setLabel('Additional details (optional)')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Any extra details that might help (optional)')
+          .setRequired(false)
+          .setValue('');
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(ruleInput),
+          new ActionRowBuilder().addComponents(evidenceInput),
+          new ActionRowBuilder().addComponents(reasonInput),
+          new ActionRowBuilder().addComponents(notesInput),
+        );
+
+        await interaction.showModal(modal);
+      } catch (error) {
+        console.error('[tickets] Failed to show report modal:', error);
+        if (!interaction.replied && !interaction.deferred) {
+          try {
+            await interaction.reply({
+              content: 'There was an error opening the report form. Please try again later.',
+              ephemeral: true,
+            });
+          } catch {
+            // Ignore follow-up failures
+          }
+        }
+      }
+
+      return;
+    }
+
+    if (interaction.customId === 'tickets:button:appeal:submit') {
+      try {
+        const modal = new ModalBuilder()
+          .setCustomId('tickets:modal:appeal:submit')
+          .setTitle('Ban Appeal Request');
+
+        const whenBannedInput = new TextInputBuilder()
+          .setCustomId('when_banned')
+          .setLabel('When were you banned? (approximate date)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Approximate date of your ban')
+          .setRequired(true)
+          .setValue('');
+
+        const whyBannedInput = new TextInputBuilder()
+          .setCustomId('why_banned')
+          .setLabel('Why were you banned? (brief explanation)')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Short summary of what led to your ban')
+          .setRequired(true)
+          .setValue('');
+
+        const whyReturnInput = new TextInputBuilder()
+          .setCustomId('why_return')
+          .setLabel('Why should your ban be lifted?')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Explain why your ban should be lifted')
+          .setRequired(true)
+          .setValue('');
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(whenBannedInput),
+          new ActionRowBuilder().addComponents(whyBannedInput),
+          new ActionRowBuilder().addComponents(whyReturnInput),
+        );
+
+        await interaction.showModal(modal);
+      } catch (error) {
+        console.error('[tickets] Failed to show appeal modal:', error);
+        if (!interaction.replied && !interaction.deferred) {
+          try {
+            await interaction.reply({
+              content: 'There was an error opening the appeal form. Please try again later.',
+              ephemeral: true,
+            });
+          } catch {
+            // Ignore follow-up failures
+          }
+        }
+      }
+
+      return;
+    }
+
+    if (interaction.customId === 'tickets:button:other:submit') {
+      try {
+        const modal = new ModalBuilder()
+          .setCustomId('tickets:modal:other:submit')
+          .setTitle('Support Request');
+
+        const descriptionInput = new TextInputBuilder()
+          .setCustomId('description')
+          .setLabel('Please describe how we can assist you.')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Describe your issue or request in detail')
+          .setRequired(true)
+          .setValue('');
+
+        modal.addComponents(new ActionRowBuilder().addComponents(descriptionInput));
+
+        await interaction.showModal(modal);
+      } catch (error) {
+        console.error('[tickets] Failed to show other support modal:', error);
+        if (!interaction.replied && !interaction.deferred) {
+          try {
+            await interaction.reply({
+              content: 'There was an error opening the support form. Please try again later.',
+              ephemeral: true,
+            });
+          } catch {
+            // Ignore follow-up failures
+          }
+        }
+      }
+
+      return;
+    }
+
+    if (interaction.customId?.startsWith('tickets:button:report:accept:')) {
+      try {
+        const parts = interaction.customId.split(':');
+        const ticketId = parts[parts.length - 1];
+        const stored = ticketState.get(ticketId);
+
+        if (!stored) {
+          await interaction.reply({ content: 'This ticket could not be found or has already been handled.', ephemeral: true });
+          return;
+        }
+
+        ticketState.set(ticketId, { ...stored, phase: 2 });
+
+        const guild = interaction.guild;
+        const parentChannel = interaction.channel;
+
+        if (!guild || !parentChannel || !parentChannel.isTextBased()) {
+          await interaction.reply({ content: 'I cannot create a channel for this ticket here.', ephemeral: true });
+          return;
+        }
+
+        const ticketType = stored.type ?? 'report';
+
+        let channelName;
+        const ticketEmbed = new EmbedBuilder().setTimestamp();
+
+        if (ticketType === 'report') {
+          channelName = `Report-ticket(${ticketId})`;
+
+          ticketEmbed
+            .setTitle(`Rule Violation Report — ${ticketId}`)
+            .setColor(0x2ecc71)
+            .addFields(
+              { name: 'Ticket ID', value: ticketId, inline: true },
+              { name: 'Reporter', value: stored.reporterTag, inline: false },
+              { name: 'Reported user', value: stored.rulebreaker, inline: false },
+              { name: 'Evidence', value: stored.evidence, inline: false },
+              { name: 'Reason for report', value: stored.reason, inline: false },
+            );
+
+          if (stored.notes) {
+            ticketEmbed.addFields({
+              name: 'Additional information',
+              value: stored.notes,
+              inline: false,
+            });
+          }
+        } else if (ticketType === 'appeal') {
+          channelName = `Appeal-ticket(${ticketId})`;
+
+          ticketEmbed
+            .setTitle(`Ban Appeal — ${ticketId}`)
+            .setColor(0xf1c40f)
+            .addFields(
+              { name: 'Ticket ID', value: ticketId, inline: true },
+              { name: 'User', value: stored.reporterTag, inline: false },
+              { name: 'Ban date (approximate)', value: stored.whenBanned, inline: false },
+              { name: 'Reason for ban', value: stored.whyBanned, inline: false },
+              { name: 'Reason for appeal', value: stored.whyReturn, inline: false },
+            );
+        } else if (ticketType === 'other') {
+          channelName = `Support-ticket(${ticketId})`;
+
+          ticketEmbed
+            .setTitle(`Support Ticket — ${ticketId}`)
+            .setColor(0x3498db)
+            .addFields(
+              { name: 'Ticket ID', value: ticketId, inline: true },
+              { name: 'User', value: stored.reporterTag, inline: false },
+              { name: 'Request', value: stored.description, inline: false },
+            );
+        } else {
+          channelName = `Ticket(${ticketId})`;
+
+          ticketEmbed
+            .setTitle(`Ticket ${ticketId}`)
+            .setColor(0x2ecc71)
+            .addFields(
+              { name: 'Ticket ID', value: ticketId, inline: true },
+              { name: 'Reporter', value: stored.reporterTag ?? 'Unknown', inline: false },
+            );
+        }
+
+        const newChannel = await guild.channels.create({
+          name: channelName,
+          type: ChannelType.GuildText,
+          parent: '1447731818139877509',
+          reason: `Ticket accepted by ${interaction.user.tag} (ID: ${ticketId})`,
+        });
+
+        await newChannel.send({
+          content: `${interaction.user}`,
+          embeds: [ticketEmbed],
+        });
+
+        await interaction.reply({
+          content: `Ticket **${ticketId}** accepted. Created channel ${newChannel.toString()}.`,
+          ephemeral: true,
+        });
+      } catch (error) {
+        console.error('[tickets] Failed to accept report ticket:', error);
+        if (!interaction.replied && !interaction.deferred) {
+          try {
+            await interaction.reply({
+              content: 'There was an error while accepting this ticket. Please try again later.',
+              ephemeral: true,
+            });
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      return;
+    }
+
+    if (interaction.customId?.startsWith('tickets:button:report:deny:')) {
+      try {
+        const parts = interaction.customId.split(':');
+        const ticketId = parts[parts.length - 1];
+
+        const modal = new ModalBuilder()
+          .setCustomId(`tickets:modal:decision:deny:${ticketId}`)
+          .setTitle('Delete Ticket');
+
+        const reasonInput = new TextInputBuilder()
+          .setCustomId('deny_reason')
+          .setLabel('Reason for deleting this ticket')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false)
+          .setValue('');
+
+        modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+
+        await interaction.showModal(modal);
+      } catch (error) {
+        console.error('[tickets] Failed to show delete ticket modal:', error);
+        if (!interaction.replied && !interaction.deferred) {
+          try {
+            await interaction.reply({
+              content: 'There was an error opening the delete form. Please try again later.',
+              ephemeral: true,
+            });
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      return;
+    }
+
+    if (interaction.customId?.startsWith('tickets:button:report:delete:')) {
+      try {
+        const guild = interaction.guild;
+        if (!guild) {
+          await interaction.reply({
+            content: 'This button can only be used inside a server.',
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const parts = interaction.customId.split(':');
+        const ticketId = parts[parts.length - 1];
+
+        const stored = ticketState.get(ticketId);
+
+        if (stored && stored.channelId && stored.messageId) {
+          try {
+            const logChannel =
+              guild.channels.cache.get(stored.channelId) ??
+              (await guild.channels.fetch(stored.channelId).catch(() => null));
+
+            if (logChannel && logChannel.isTextBased()) {
+              const logMessage = await logChannel.messages
+                .fetch(stored.messageId)
+                .catch(() => null);
+
+              if (logMessage && logMessage.deletable) {
+                await logMessage.delete();
+              }
+            }
+          } finally {
+            ticketState.delete(ticketId);
+          }
+        } else {
+          ticketState.delete(ticketId);
+        }
+
+        await interaction.reply({
+          content: `Ticket **${ticketId}** has been ignored.`,
+          ephemeral: true,
+        });
+      } catch (error) {
+        console.error('[tickets] Error handling ignore ticket button:', error);
+        if (!interaction.replied && !interaction.deferred) {
+          try {
+            await interaction.reply({
+              content:
+                'There was an error while ignoring this ticket. Please try again later.',
+              ephemeral: true,
+            });
+          } catch {
+            // Ignore follow-up failures
+          }
+        }
+      }
+
+      return;
+    }
+
+    return;
+  }
+
+  if (interaction.isModalSubmit()) {
+    if (isTicketBlacklisted(interaction)) {
+      try {
+        await interaction.reply({
+          content:
+            'You are not allowed to use this ticket system because you are on the ticket blacklist.',
+          ephemeral: true,
+        });
+      } catch (error) {
+        console.error('[blacklist] Failed to reply to blacklisted modal user:', error);
+      }
+      return;
+    }
+
+    if (interaction.customId === 'tickets:modal:report:submit') {
+      try {
+        const guild = interaction.guild;
+        if (!guild) {
+          await interaction.reply({
+            content: 'This form can only be used inside a server.',
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const rulebreaker = interaction.fields.getTextInputValue('rulebreaker').trim();
+        const evidence = interaction.fields.getTextInputValue('evidence').trim();
+        const reason = interaction.fields.getTextInputValue('reason').trim();
+        const notes = interaction.fields.getTextInputValue('notes').trim();
+
+        if (!rulebreaker || !evidence || !reason) {
+          await interaction.reply({
+            content: 'Rulebreaker, evidence URL, and reason are all required.',
+            ephemeral: true,
+          });
+          return;
+        }
+
+        let parsedEvidenceUrl;
+        try {
+          parsedEvidenceUrl = new URL(evidence);
+        } catch {
+          await interaction.reply({
+            content:
+              'Please provide a valid evidence link from **medal.tv** or **youtube.com**.',
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const hostname = parsedEvidenceUrl.hostname.toLowerCase();
+        const allowedHosts = [
+          'medal.tv',
+          'www.medal.tv',
+          'youtube.com',
+          'www.youtube.com',
+        ];
+
+        if (!allowedHosts.includes(hostname)) {
+          await interaction.reply({
+            content:
+              'The evidence link must be from **medal.tv** or **youtube.com**.',
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const totalLength =
+          rulebreaker.length +
+          evidence.length +
+          reason.length +
+          notes.length;
+
+        if (totalLength < 50) {
+          await interaction.reply({
+            content:
+              'Please try to include more information! Ticket not recorded.',
+            ephemeral: true,
+          });
+          return;
+        }
+
+        let logChannel = null;
+        try {
+          logChannel = await guild.channels.fetch(REPORT_TICKET_CHANNEL_ID);
+        } catch (error) {
+          console.error('[tickets] Failed to fetch report ticket channel:', error);
+        }
+
+        const reporter = interaction.user;
+        const ticketId = generateTicketId();
+
+        const embed = new EmbedBuilder()
+          .setTitle(`Rule Violation Report — ${ticketId}`)
+          .setColor(0xff0000)
+          .addFields(
+            { name: 'Ticket ID', value: ticketId, inline: true },
+            { name: 'Reporter', value: `${reporter.tag} (${reporter.id})`, inline: false },
+            { name: 'Reported user', value: rulebreaker, inline: false },
+            { name: 'Evidence', value: evidence, inline: false },
+            { name: 'Details', value: reason, inline: false },
+          )
+          .setTimestamp();
+
+        if (notes) {
+          embed.addFields({ name: 'Additional information', value: notes, inline: false });
+        }
+
+        const components = [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`tickets:button:report:accept:${ticketId}`)
+              .setLabel('Investigate Ticket')
+              .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+              .setCustomId(`tickets:button:report:delete:${ticketId}`)
+              .setLabel('Ignore Ticket')
+              .setStyle(ButtonStyle.Danger),
+            new ButtonBuilder()
+              .setCustomId(`tickets:button:report:deny:${ticketId}`)
+              .setLabel('Delete Ticket')
+              .setStyle(ButtonStyle.Danger),
+          ),
+        ];
+
+        const sentMessage = await logChannel.send({ embeds: [embed], components });
+
+        ticketState.set(ticketId, {
+          type: 'report',
+          phase: 1,
+          messageId: sentMessage.id,
+          channelId: sentMessage.channelId,
+          guildId: guild.id,
+          reporterTag: `${reporter.tag} (${reporter.id})`,
+          rulebreaker,
+          evidence,
+          reason,
+          notes,
+        });
+
+        await interaction.reply({
+          content:
+            `Your report has been submitted to the moderation team. Your ticket ID is **${ticketId}**.`,
+          ephemeral: true,
+        });
+      } catch (error) {
+        console.error('[tickets] Error handling report modal submission:', error);
+        if (!interaction.replied && !interaction.deferred) {
+          try {
+            await interaction.reply({
+              content: 'There was an error submitting your report. Please try again later.',
+              ephemeral: true,
+            });
+          } catch {
+            // Ignore follow-up failures
+          }
+        }
+      }
+    }
+
+    if (interaction.customId === 'tickets:modal:appeal:submit') {
+      try {
+        const guild = interaction.guild;
+        if (!guild) {
+          await interaction.reply({
+            content: 'This form can only be used inside a server.',
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const whenBanned = interaction.fields.getTextInputValue('when_banned').trim();
+        const whyBanned = interaction.fields.getTextInputValue('why_banned').trim();
+        const whyReturn = interaction.fields.getTextInputValue('why_return').trim();
+
+        if (!whenBanned || !whyBanned || !whyReturn) {
+          await interaction.reply({
+            content: 'All appeal fields are required.',
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const totalLength =
+          whenBanned.length +
+          whyBanned.length +
+          whyReturn.length;
+
+        if (totalLength < 50) {
+          await interaction.reply({
+            content:
+              'Please try to include more information! Ticket not recorded.',
+            ephemeral: true,
+          });
+          return;
+        }
+
+        let logChannel = null;
+        try {
+          logChannel = await guild.channels.fetch(APPEAL_TICKET_CHANNEL_ID);
+        } catch (error) {
+          console.error('[tickets] Failed to fetch appeal ticket channel:', error);
+        }
+
+        const reporter = interaction.user;
+        const ticketId = generateTicketId();
+
+        const embed = new EmbedBuilder()
+          .setTitle(`Ban Appeal — ${ticketId}`)
+          .setColor(0xf1c40f)
+          .addFields(
+            { name: 'Ticket ID', value: ticketId, inline: true },
+            { name: 'User', value: `${reporter.tag} (${reporter.id})`, inline: false },
+            { name: 'Ban date (approximate)', value: whenBanned, inline: false },
+            { name: 'Reason for ban', value: whyBanned, inline: false },
+            { name: 'Reason for appeal', value: whyReturn, inline: false },
+          )
+          .setTimestamp();
+
+        const components = [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`tickets:button:report:accept:${ticketId}`)
+              .setLabel('Investigate Ticket')
+              .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+              .setCustomId(`tickets:button:report:delete:${ticketId}`)
+              .setLabel('Ignore Ticket')
+              .setStyle(ButtonStyle.Danger),
+            new ButtonBuilder()
+              .setCustomId(`tickets:button:report:deny:${ticketId}`)
+              .setLabel('Delete Ticket')
+              .setStyle(ButtonStyle.Danger),
+          ),
+        ];
+
+        const sentMessage = await logChannel.send({ embeds: [embed], components });
+
+        ticketState.set(ticketId, {
+          type: 'appeal',
+          phase: 1,
+          messageId: sentMessage.id,
+          channelId: sentMessage.channelId,
+          guildId: guild.id,
+          reporterTag: `${reporter.tag} (${reporter.id})`,
+          whenBanned,
+          whyBanned,
+          whyReturn,
+        });
+
+        await interaction.reply({
+          content:
+            `Your appeal has been submitted to the moderation team. Your ticket ID is **${ticketId}**.`,
+          ephemeral: true,
+        });
+      } catch (error) {
+        console.error('[tickets] Error handling appeal modal submission:', error);
+        if (!interaction.replied && !interaction.deferred) {
+          try {
+            await interaction.reply({
+              content: 'There was an error submitting your appeal. Please try again later.',
+              ephemeral: true,
+            });
+          } catch {
+            // Ignore follow-up failures
+          }
+        }
+      }
+    }
+
+    if (interaction.customId === 'tickets:modal:other:submit') {
+      try {
+        const guild = interaction.guild;
+        if (!guild) {
+          await interaction.reply({
+            content: 'This form can only be used inside a server.',
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const description = interaction.fields.getTextInputValue('description').trim();
+
+        if (!description) {
+          await interaction.reply({
+            content: 'Please describe what you need help with.',
+            ephemeral: true,
+          });
+          return;
+        }
+
+        if (description.length < 50) {
+          await interaction.reply({
+            content:
+              'Please try to include more information! Ticket not recorded.',
+            ephemeral: true,
+          });
+          return;
+        }
+
+        let logChannel = null;
+        try {
+          logChannel = await guild.channels.fetch(OTHER_TICKET_CHANNEL_ID);
+        } catch (error) {
+          console.error('[tickets] Failed to fetch other support ticket channel:', error);
+        }
+
+        const reporter = interaction.user;
+        const ticketId = generateTicketId();
+
+        const embed = new EmbedBuilder()
+          .setTitle(`Support Ticket — ${ticketId}`)
+          .setColor(0x3498db)
+          .addFields(
+            { name: 'Ticket ID', value: ticketId, inline: true },
+            { name: 'User', value: `${reporter.tag} (${reporter.id})`, inline: false },
+            { name: 'Request', value: description, inline: false },
+          )
+          .setTimestamp();
+
+        const components = [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`tickets:button:report:accept:${ticketId}`)
+              .setLabel('Investigate Ticket')
+              .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+              .setCustomId(`tickets:button:report:delete:${ticketId}`)
+              .setLabel('Ignore Ticket')
+              .setStyle(ButtonStyle.Danger),
+            new ButtonBuilder()
+              .setCustomId(`tickets:button:report:deny:${ticketId}`)
+              .setLabel('Delete Ticket')
+              .setStyle(ButtonStyle.Danger),
+          ),
+        ];
+
+        const sentMessage = await logChannel.send({ embeds: [embed], components });
+
+        ticketState.set(ticketId, {
+          type: 'other',
+          phase: 1,
+          messageId: sentMessage.id,
+          channelId: sentMessage.channelId,
+          guildId: guild.id,
+          reporterTag: `${reporter.tag} (${reporter.id})`,
+          description,
+        });
+
+        await interaction.reply({
+          content:
+            `Your ticket has been submitted to the moderation team. Your ticket ID is **${ticketId}**.`,
+          ephemeral: true,
+        });
+      } catch (error) {
+        console.error('[tickets] Error handling other support modal submission:', error);
+        if (!interaction.replied && !interaction.deferred) {
+          try {
+            await interaction.reply({
+              content: 'There was an error submitting your ticket. Please try again later.',
+              ephemeral: true,
+            });
+          } catch {
+            // Ignore follow-up failures
+          }
+        }
+      }
+    }
+
+    if (interaction.customId?.startsWith('tickets:modal:decision:deny:')) {
+      try {
+        const guild = interaction.guild;
+        if (!guild) {
+          await interaction.reply({
+            content: 'This form can only be used inside a server.',
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const parts = interaction.customId.split(':');
+        const ticketId = parts[parts.length - 1];
+        const reasonRaw = interaction.fields.getTextInputValue('deny_reason') ?? '';
+        const reasonForDeny = reasonRaw.trim();
+
+        const stored = ticketState.get(ticketId);
+
+        if (stored && stored.channelId && stored.messageId) {
+          try {
+            const logChannel =
+              guild.channels.cache.get(stored.channelId) ??
+              (await guild.channels.fetch(stored.channelId).catch(() => null));
+
+            if (logChannel && logChannel.isTextBased()) {
+              const logMessage = await logChannel.messages
+                .fetch(stored.messageId)
+                .catch(() => null);
+
+              if (logMessage && logMessage.deletable) {
+                await logMessage.delete();
+              }
+            }
+          } finally {
+            ticketState.delete(ticketId);
+          }
+        } else {
+          ticketState.delete(ticketId);
+        }
+
+        try {
+          const logChannel = await guild.channels
+            .fetch('1447705274243616809')
+            .catch(() => null);
+
+          if (logChannel && logChannel.isTextBased()) {
+            const embed = new EmbedBuilder()
+              .setTitle('Ticket Decision')
+              .setColor(0xff0000)
+              .addFields(
+                { name: 'Ticket ID', value: ticketId, inline: true },
+                { name: 'Decision', value: 'Denied', inline: true },
+                {
+                  name: 'Staff',
+                  value: `${interaction.user.tag} (${interaction.user.id})`,
+                  inline: false,
+                },
+                {
+                  name: 'Reason for denial',
+                  value: reasonForDeny || 'None provided',
+                  inline: false,
+                },
+              )
+              .setTimestamp();
+
+            await logChannel.send({ embeds: [embed] });
+          }
+        } catch (error) {
+          console.error(
+            '[tickets] Failed to log deleted ticket to ticket log channel:',
+            error,
+          );
+        }
+
+        await interaction.reply({
+          content: `Ticket **${ticketId}** has been deleted and logged.`,
+          ephemeral: true,
+        });
+      } catch (error) {
+        console.error('[tickets] Error handling deny ticket modal submission:', error);
+        if (!interaction.replied && !interaction.deferred) {
+          try {
+            await interaction.reply({
+              content: 'There was an error while denying this ticket. Please try again later.',
+              ephemeral: true,
+            });
+          } catch {
+            // Ignore follow-up failures
+          }
+        }
+      }
+    }
+  }
+});
+client.on(Events.MessageCreate, async message => {
+  if (message.author.bot) return;
+
+  // DM forwarding from users to a staff channel
+  if (!message.guild) {
+    try {
+      console.log('[dm-forward] Received DM from', message.author.tag, message.author.id);
+      await appendDmToGroupedEmbed(message);
+    } catch (error) {
+      console.error('[dm-forward] Failed to forward DM:', error);
+    }
+    return;
+  }
+
+  try {
+    const guildId = message.guild.id;
+
+    const existingAfk = getAfk(guildId, message.author.id);
+
+    if (existingAfk) {
+      clearAfk(guildId, message.author.id);
+
+      try {
+        const member = await message.guild.members.fetch(message.author.id);
+        const currentName = member.nickname ?? member.user.username;
+
+        if (currentName.startsWith('[AFK] ') && member.manageable) {
+          const newNickname = currentName.slice('[AFK] '.length);
+          await member.setNickname(newNickname, 'Clear AFK status on message');
+        }
+      } catch (error) {
+        console.error('[afk] Failed to clear nickname on message:', error);
+      }
+
+      try {
+        const reply = await message.reply(`Welcome back ${message.author}, I removed your AFK.`);
+
+        setTimeout(async () => {
+          try {
+            if (reply.deletable) {
+              await reply.delete();
+            }
+          } catch (error) {
+            console.error('[afk] Failed to delete welcome back message:', error);
+          }
+        }, 3000);
+      } catch (error) {
+        console.error('[afk] Failed to send welcome back message:', error);
+      }
+    }
+
+    const mentions = message.mentions;
+    if (!mentions || !mentions.users || mentions.users.size === 0) {
+      return;
+    }
+
+    const lines = [];
+
+    for (const [userId, user] of mentions.users) {
+      if (userId === message.author.id) {
+        continue;
+      }
+
+      const afk = getAfk(guildId, userId);
+      if (afk) {
+        const reason =
+          typeof afk.reason === 'string' && afk.reason.trim().length
+            ? afk.reason.trim()
+            : 'No reason provided.';
+        lines.push(`${user} is currently AFK: ${reason}`);
+      }
+    }
+
+    if (lines.length > 0) {
+      const reply = await message.reply({
+        content: lines.join('\n'),
+        allowedMentions: { users: [] },
+      });
+
+      setTimeout(async () => {
+        try {
+          if (message.deletable) {
+            await message.delete();
+          }
+        } catch (error) {
+          console.error('[afk] Failed to delete original AFK ping message:', error);
+        }
+
+        try {
+          if (reply.deletable) {
+            await reply.delete();
+          }
+        } catch (error) {
+          console.error('[afk] Failed to delete AFK reply message:', error);
+        }
+      }, 5000);
+    }
+  } catch (error) {
+    console.error('[afk] Failed to handle AFK mention:', error);
+  }
+});
+
+client.on(Events.ThreadCreate, async thread => {
+  try {
+    if (!thread || thread.type !== ChannelType.GuildPublicThread) {
+      return;
+    }
+
+    const parentId = thread.parentId;
+    if (!parentId || !AUTO_VOTE_FORUM_CHANNEL_IDS.includes(parentId)) {
+      return;
+    }
+
+    const guild = thread.guild;
+    if (!guild) {
+      return;
+    }
+
+    let autoVotesEnabled = true;
+    try {
+      const store = loadServersSafe();
+      const guildConfig = store[guild.id] || {};
+      if (guildConfig.forumAutoVotesEnabled === false) {
+        autoVotesEnabled = false;
+      }
+    } catch (error) {
+      console.error('[autovote] Failed to read forum auto-vote config:', error);
+    }
+
+    if (!autoVotesEnabled) {
+      return;
+    }
+
+    let starter;
+    try {
+      starter = await thread.fetchStarterMessage();
+    } catch (error) {
+      console.error('[autovote] Failed to fetch starter message for thread:', error);
+      return;
+    }
+
+    if (!starter || starter.author?.bot) {
+      return;
+    }
+
+    try {
+      await starter.react('⬆️');
+    } catch (error) {
+      console.error('[autovote] Failed to add upvote reaction to starter message:', error);
+    }
+
+    try {
+      await starter.react('⬇️');
+    } catch (error) {
+      console.error('[autovote] Failed to add downvote reaction to starter message:', error);
+    }
+  } catch (error) {
+    console.error('[autovote] Error handling ThreadCreate for forum auto-votes:', error);
+  }
+});
+
+client.on(Events.MessageCreate, async message => {
+  if (message.author.bot) return;
+  if (!message.guild) return;
+
+  try {
+    const guildId = message.guild.id;
+    const fromId = message.author.id;
+    const rawContent = message.content || '';
+    const content = rawContent.toLowerCase();
+
+    if (!content.length) {
+      return;
+    }
+
+    // Automod: check for blocked words/phrases and delete the message + warn the author.
+    const automodRules = getAutomodRules(guildId);
+    if (Array.isArray(automodRules) && automodRules.length > 0) {
+      let triggeredRule = null;
+
+      for (const rule of automodRules) {
+        if (!rule || typeof rule.phrase !== 'string') {
+          continue;
+        }
+
+        const phrase = rule.phrase.trim();
+        if (!phrase.length) {
+          continue;
+        }
+
+        if (content.includes(phrase.toLowerCase())) {
+          triggeredRule = rule;
+          break;
+        }
+      }
+
+      if (triggeredRule) {
+        try {
+          const warning = await message.reply({
+            content: `<@${fromId}> Your message was removed for using a blocked word.`,
+            allowedMentions: { users: [fromId] },
+          });
+
+          setTimeout(async () => {
+            try {
+              if (warning.deletable) {
+                await warning.delete();
+              }
+            } catch (error) {
+              console.error('[automod] Failed to delete warning message:', error);
+            }
+          }, 3000);
+        } catch (error) {
+          console.error('[automod] Failed to send warning reply:', error);
+        }
+
+        try {
+          if (message.deletable) {
+            await message.delete();
+          }
+        } catch (error) {
+          console.error('[automod] Failed to delete automodded message:', error);
+        }
+
+        return;
+      }
+    }
+    // Reverse automod: check for celebratory words/phrases and reply "Yay!" without deleting messages.
+    const reverseRules = getReverseAutomodRules(guildId);
+    if (Array.isArray(reverseRules) && reverseRules.length > 0) {
+      let triggeredReverse = null;
+
+      for (const rule of reverseRules) {
+        if (!rule || typeof rule.phrase !== 'string') {
+          continue;
+        }
+
+        const phrase = rule.phrase.trim();
+        if (!phrase.length) {
+          continue;
+        }
+
+        if (content.includes(phrase.toLowerCase())) {
+          triggeredReverse = rule;
+          break;
+        }
+      }
+
+      if (triggeredReverse) {
+        try {
+          await message.reply({
+            content: 'Yay!',
+          });
+        } catch (error) {
+          console.error('[reverse-automod] Failed to send Yay reply:', error);
+        }
+      }
+    }
+
+    const mentions = message.mentions;
+    if (!mentions || !mentions.users || mentions.users.size === 0) {
+      return;
+    }
+
+    let replyText = null;
+
+    for (const [userId] of mentions.users) {
+      if (userId === fromId) {
+        continue;
+      }
+
+      const rule = getNoPingRule(guildId, userId);
+      if (!rule || !rule.parseFor) {
+        continue;
+      }
+
+      const needle = rule.parseFor.toLowerCase();
+      if (!needle || !content.includes(needle)) {
+        continue;
+      }
+
+      const baseResponse =
+        typeof rule.response === 'string' && rule.response.trim().length
+          ? rule.response.trim()
+          : `don't ping regarding ${rule.parseFor}.`;
+
+      replyText = baseResponse;
+      break;
+    }
+
+    if (!replyText) {
+      return;
+    }
+
+    await message.reply({
+      content: `<@${fromId}> ${replyText}`,
+      allowedMentions: { users: [fromId] },
+    });
+  } catch (error) {
+    console.error('[noping] Failed to handle no-ping rule:', error);
+  }
+});
+
+client.login(BOT_TOKEN);

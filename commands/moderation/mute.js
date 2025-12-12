@@ -1,0 +1,93 @@
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+
+module.exports = {
+  data: new SlashCommandBuilder()
+    .setName('mute')
+    .setDescription('Timeout a member for a period and DM them the reason.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .setDMPermission(false)
+    .addUserOption(option =>
+      option
+        .setName('target')
+        .setDescription('Member to mute (timeout)')
+        .setRequired(true),
+    )
+    .addIntegerOption(option =>
+      option
+        .setName('minutes')
+        .setDescription('Duration in minutes (default 10, max 40320 ≈ 28 days)')
+        .setMinValue(1)
+        .setMaxValue(40320),
+    )
+    .addStringOption(option =>
+      option
+        .setName('reason')
+        .setDescription('Reason for the mute')
+        .setRequired(false),
+    ),
+  async execute(interaction) {
+    const targetUser = interaction.options.getUser('target', true);
+    const minutes = interaction.options.getInteger('minutes') ?? 10;
+    const reason = interaction.options.getString('reason') ?? 'No reason provided.';
+
+    if (!interaction.guild) {
+      await interaction.reply({ content: 'This command can only be used in a server.', ephemeral: true });
+      return;
+    }
+
+    const callerPermissions = interaction.memberPermissions;
+    if (!callerPermissions?.has(PermissionFlagsBits.ModerateMembers)) {
+      await interaction.reply({
+        content: 'You do not have permission to use this command. (Moderate Members required.)',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+
+    if (!member) {
+      await interaction.reply({ content: 'I could not find that member in this server.', ephemeral: true });
+      return;
+    }
+
+    if (!member.moderatable) {
+      await interaction.reply({ content: 'I cannot mute that member (insufficient permissions or higher role).', ephemeral: true });
+      return;
+    }
+
+    const clampedMinutes = Math.min(Math.max(minutes, 1), 40320);
+    const now = Date.now();
+    const durationMs = clampedMinutes * 60_000;
+    const expiresAt = now + durationMs;
+    const expiresAtUnix = Math.floor(expiresAt / 1000);
+
+    await interaction.deferReply({ ephemeral: true });
+
+    try {
+      try {
+        const embed = new EmbedBuilder()
+          .setTitle(`You have been muted in ${interaction.guild.name}`)
+          .setColor(0xffcc00)
+          .setDescription(reason)
+          .addFields(
+            { name: 'Duration', value: `${clampedMinutes} minute(s)`, inline: true },
+            { name: 'Expires', value: `<t:${expiresAtUnix}:F> (<t:${expiresAtUnix}:R>)`, inline: true },
+          )
+          .setTimestamp();
+
+        await targetUser.send({ embeds: [embed] });
+      } catch {
+      }
+
+      await member.timeout(durationMs, `${reason} | Muted by ${interaction.user.tag}`);
+
+      await interaction.editReply(
+        `✅ Muted **${targetUser.tag}** for ${clampedMinutes} minute(s). Expires <t:${expiresAtUnix}:F> (<t:${expiresAtUnix}:R>). Reason: ${reason}`,
+      );
+    } catch (error) {
+      console.error('Error executing /mute:', error);
+      await interaction.editReply('There was an error while trying to mute that member.');
+    }
+  },
+};
