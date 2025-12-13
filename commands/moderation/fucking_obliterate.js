@@ -274,6 +274,7 @@ module.exports = {
 
     // Step 1: Ban user
     let banResultText = 'Ban not attempted.';
+    let banSucceeded = false;
     try {
       const member = await guild.members.fetch(targetUser.id).catch(() => null);
       if (member && member.bannable) {
@@ -283,15 +284,32 @@ module.exports = {
             : 'Nuclear obliteration via /fucking_obliterate';
         await member.ban({
           reason: `${baseReason} | Nuked by ${interaction.user.tag}`,
+          deleteMessageSeconds: 7 * 24 * 60 * 60,
         });
         banResultText = 'User banned successfully.';
+        banSucceeded = true;
       } else {
         banResultText =
           'I could not ban that user (they may already be gone, or I lack sufficient permissions / role hierarchy).';
+
+        // If they're already banned, treat that as success.
+        const existingBan = await guild.bans.fetch(targetUser.id).catch(() => null);
+        if (existingBan) {
+          banResultText = 'User is already banned.';
+          banSucceeded = true;
+        }
       }
     } catch {
       banResultText =
         'Ban attempt failed due to an error or permission issue; please verify ban status manually.';
+    }
+
+    if (!banSucceeded) {
+      await interaction.editReply(
+        `⛔ Aborted before scrubbing. Step 1 — Ban user: ${banResultText}\n\n` +
+          'I did **not** scrub messages/reactions because I could not confirm the ban. Fix my Ban Members permission / role hierarchy (or ban manually), then rerun this command.',
+      );
+      return;
     }
 
     let channelsScanned = 0;

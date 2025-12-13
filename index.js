@@ -1,8 +1,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const {
   Client,
   Collection,
+  AuditLogEvent,
   Events,
   GatewayIntentBits,
   EmbedBuilder,
@@ -16,8 +18,13 @@ const {
   ChannelType,
 } = require('discord.js');
 const { BOT_TOKEN } = require('./constants');
+const { dmTicketPresenter } = require('./ticket_dm');
 
 const dmForwardState = new Map();
+const recentWelcomeMembers = new Map();
+const WELCOME_DEDUPE_WINDOW_MS = 120_000;
+const recentTicketSubmissions = new Map();
+const TICKET_SUBMISSION_DEDUPE_MS = 15_000;
 const { ticketState } = require('./ticket_state');
 const { getAfk, clearAfk } = require('./afk_state');
 const { getNoPingRule } = require('./noping_state');
@@ -27,6 +34,7 @@ const {
   getWelcomeChannelId,
   getWelcomeMessageTemplate,
 } = require('./welcome_state');
+const testSessionState = require('./test_session_state');
 const REPORT_TICKET_CHANNEL_ID = '1447699511802724354';
 const APPEAL_TICKET_CHANNEL_ID = '1447699541309784084';
 const OTHER_TICKET_CHANNEL_ID = '1447699570267131977';
@@ -44,6 +52,7 @@ const DATA_DIR = path.join(__dirname, 'data');
 const POLLS_FILE = path.join(DATA_DIR, 'polls.json');
 const CHANNELS_FILE = path.join(DATA_DIR, 'channels.json');
 const SERVERS_FILE = path.join(DATA_DIR, 'servers.json');
+const MOD_FILE = path.join(DATA_DIR, 'moderations.json');
 
 if (!BOT_TOKEN || BOT_TOKEN === 'YOUR_BOT_TOKEN_HERE') {
   console.error('Please set BOT_TOKEN in constants.js before starting the bot.');
@@ -127,6 +136,50 @@ function saveServersSafe(store) {
   } catch (error) {
     console.error('[config] Failed to write servers.json:', error);
   }
+}
+
+function loadModerationsSafe() {
+  ensureDataDir();
+  if (!fs.existsSync(MOD_FILE)) return {};
+
+  try {
+    const raw = fs.readFileSync(MOD_FILE, 'utf8');
+    return raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    console.error('[moderations] Failed to read moderations.json:', error);
+    return {};
+  }
+}
+
+function saveModerationsSafe(store) {
+  ensureDataDir();
+  try {
+    fs.writeFileSync(MOD_FILE, JSON.stringify(store, null, 2), 'utf8');
+  } catch (error) {
+    console.error('[moderations] Failed to write moderations.json:', error);
+  }
+}
+
+function generateModerationId() {
+  return crypto.randomBytes(4).toString('hex');
+}
+
+function hasRecentBanRecord(guildStore, targetId, nowMs) {
+  if (!guildStore) return false;
+
+  for (const record of Object.values(guildStore)) {
+    if (!record || record.type !== 'ban') continue;
+    if (record.targetId !== targetId) continue;
+    if (!record.issuedAt) continue;
+
+    const ts = Date.parse(record.issuedAt);
+    if (!Number.isFinite(ts)) continue;
+    if (nowMs - ts < 15_000) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function getConfiguredChannel(client, kind) {
@@ -282,6 +335,17 @@ async function logTicketDecision(guild, { ticketId, decision, staffUser, reasonF
 
 function generateTicketId() {
   return Math.random().toString(16).slice(2, 8).toUpperCase();
+}
+
+function isDuplicateTicketSubmission({ guildId, reporterId, type, nowMs }) {
+  if (!guildId || !reporterId || !type) return false;
+  const key = `${guildId}:${reporterId}:${type}`;
+  const last = recentTicketSubmissions.get(key);
+  if (typeof last === 'number' && nowMs - last < TICKET_SUBMISSION_DEDUPE_MS) {
+    return true;
+  }
+  recentTicketSubmissions.set(key, nowMs);
+  return false;
 }
 
 function isTicketBlacklisted(interaction) {
@@ -465,9 +529,97 @@ async function appendDmToGroupedEmbed(message) {
 
 client.once(Events.ClientReady, c => {
   console.log(`✅ Logged in as ${c.user.tag}`);
+
+  // Periodic sweep so we don't miss attendance if the bot restarts or if users were already in-channel.
+  setInterval(async () => {
+    try {
+      const activeSessions = testSessionState.listActiveSessions();
+      if (!activeSessions.length) return;
+
+      for (const entry of activeSessions) {
+        const guildId = entry.guildId;
+        const session = entry.session;
+        if (!guildId || !session || !session.channelId) continue;
+
+        const guild = client.guilds.cache.get(guildId);
+        if (!guild) continue;
+
+        let channel = guild.channels.cache.get(session.channelId);
+        if (!channel) {
+          channel = await guild.channels.fetch(session.channelId).catch(() => null);
+        }
+
+        if (!channel) continue;
+        if (channel.type !== ChannelType.GuildVoice && channel.type !== ChannelType.GuildStageVoice) {
+          continue;
+        }
+
+        const presentIds = channel.members ? Array.from(channel.members.keys()) : [];
+        testSessionState.syncAttendance(guildId, presentIds, Date.now());
+      }
+    } catch (error) {
+      console.error('[test-session] Attendance sweep failed:', error);
+    }
+  }, 15_000);
+});
+
+client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+  try {
+    const guild = newState.guild || oldState.guild;
+    if (!guild) return;
+
+    const member = newState.member || oldState.member;
+    if (!member || !member.user || member.user.bot) return;
+
+    if (oldState.channelId === newState.channelId) {
+      return;
+    }
+
+    const active = testSessionState.getActiveSession(guild.id);
+    if (!active || !active.channelId) {
+      return;
+    }
+
+    const targetChannelId = active.channelId;
+    const nowMs = Date.now();
+
+    const joinedTarget = oldState.channelId !== targetChannelId && newState.channelId === targetChannelId;
+    const leftTarget = oldState.channelId === targetChannelId && newState.channelId !== targetChannelId;
+
+    if (joinedTarget) {
+      testSessionState.recordJoin(guild.id, member.id, nowMs);
+    } else if (leftTarget) {
+      testSessionState.recordLeave(guild.id, member.id, nowMs);
+    }
+  } catch (error) {
+    console.error('[test-session] Error handling VoiceStateUpdate:', error);
+  }
 });
 
 client.on(Events.GuildMemberAdd, async member => {
+  const guildId = member.guild?.id;
+  if (guildId) {
+    const key = `${guildId}:${member.id}`;
+    const now = Date.now();
+    const lastSeenAt = recentWelcomeMembers.get(key);
+
+    if (typeof lastSeenAt === 'number' && now - lastSeenAt < WELCOME_DEDUPE_WINDOW_MS) {
+      return;
+    }
+
+    recentWelcomeMembers.set(key, now);
+    const timeout = setTimeout(() => {
+      const storedAt = recentWelcomeMembers.get(key);
+      if (storedAt === now) {
+        recentWelcomeMembers.delete(key);
+      }
+    }, WELCOME_DEDUPE_WINDOW_MS);
+
+    if (typeof timeout?.unref === 'function') {
+      timeout.unref();
+    }
+  }
+
   try {
     const guild = member.guild;
     if (!guild) {
@@ -500,6 +652,27 @@ client.on(Events.GuildMemberAdd, async member => {
       getWelcomeMessageTemplate(guild.id) || DEFAULT_WELCOME_TEMPLATE;
     const message = template.replaceAll('{user}', `${member}`);
 
+    // Extra safety: if we've already welcomed this user in this channel very recently, don't send again.
+    try {
+      const recent = await channel.messages.fetch({ limit: 10 }).catch(() => null);
+      if (recent && recent.size > 0) {
+        const nowMs = Date.now();
+        const mentionA = `<@${member.id}>`;
+        const mentionB = `<@!${member.id}>`;
+
+        for (const msg of recent.values()) {
+          if (!msg || msg.author?.id !== client.user?.id) continue;
+          if (nowMs - msg.createdTimestamp > 2 * 60 * 1000) continue;
+          const content = msg.content || '';
+          if (content.includes(mentionA) || content.includes(mentionB)) {
+            return;
+          }
+        }
+      }
+    } catch {
+      // If this check fails, fall back to normal send.
+    }
+
     await channel.send(message);
   } catch (error) {
     console.error('[welcome] Failed to send welcome message:', error);
@@ -523,6 +696,65 @@ client.on(Events.GuildBanAdd, async ban => {
       guild: ban.guild,
       user: ban.user,
     });
+
+    // Persist ban records so /info can show ban history even when the user is no longer in the guild.
+    const guild = ban.guild;
+    const user = ban.user;
+
+    if (!guild || !user) {
+      return;
+    }
+
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const store = loadModerationsSafe();
+    const guildId = guild.id;
+    if (!store[guildId]) store[guildId] = {};
+
+    // Avoid duplicating bans that were already recorded by our /ban command moments earlier.
+    if (hasRecentBanRecord(store[guildId], user.id, nowMs)) {
+      return;
+    }
+
+    let issuedBy = null;
+    let reason = 'No reason recorded.';
+
+    try {
+      const logs = await guild.fetchAuditLogs({
+        type: AuditLogEvent.MemberBanAdd,
+        limit: 5,
+      });
+
+      const entry = logs.entries.find(auditEntry => {
+        const targetId = auditEntry?.target?.id;
+        if (targetId !== user.id) return false;
+        const createdTs = auditEntry.createdTimestamp;
+        return typeof createdTs === 'number' && Math.abs(nowMs - createdTs) < 60_000;
+      });
+
+      if (entry) {
+        issuedBy = entry.executor ? entry.executor.id : null;
+        if (entry.reason && entry.reason.trim().length) {
+          reason = entry.reason.trim();
+        }
+      }
+    } catch {
+      // Ignore audit log failures; still store the ban record.
+    }
+
+    const moderationId = generateModerationId();
+    store[guildId][moderationId] = {
+      id: moderationId,
+      type: 'ban',
+      targetId: user.id,
+      targetTag: user.tag,
+      reason,
+      issuedBy,
+      issuedAt: nowIso,
+      undone: false,
+      source: 'GuildBanAdd',
+    };
+    saveModerationsSafe(store);
   } catch (error) {
     console.error('[member-log] Failed to handle GuildBanAdd event:', error);
   }
@@ -607,6 +839,15 @@ client.on(Events.InteractionCreate, async interaction => {
 
     if (!command) {
       console.warn(`No command matching ${interaction.commandName} was found.`);
+
+      try {
+        await interaction.reply({
+          content: 'That command is not loaded on this bot instance. Restart the bot and try again.',
+          ephemeral: true,
+        });
+      } catch {
+        // ignore
+      }
       return;
     }
 
@@ -709,6 +950,14 @@ client.on(Events.InteractionCreate, async interaction => {
           .setCustomId('tickets:modal:appeal:submit')
           .setTitle('Ban Appeal Request');
 
+        const robloxUserInput = new TextInputBuilder()
+          .setCustomId('roblox_username')
+          .setLabel('What is your roblox username?')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Roblox username')
+          .setRequired(true)
+          .setValue('');
+
         const whenBannedInput = new TextInputBuilder()
           .setCustomId('when_banned')
           .setLabel('When were you banned? (approximate date)')
@@ -734,6 +983,7 @@ client.on(Events.InteractionCreate, async interaction => {
           .setValue('');
 
         modal.addComponents(
+          new ActionRowBuilder().addComponents(robloxUserInput),
           new ActionRowBuilder().addComponents(whenBannedInput),
           new ActionRowBuilder().addComponents(whyBannedInput),
           new ActionRowBuilder().addComponents(whyReturnInput),
@@ -799,6 +1049,11 @@ client.on(Events.InteractionCreate, async interaction => {
 
         if (!stored) {
           await interaction.reply({ content: 'This ticket could not be found or has already been handled.', ephemeral: true });
+          return;
+        }
+
+        if (typeof stored.phase === 'number' && stored.phase >= 2) {
+          await interaction.reply({ content: 'This ticket is already being investigated.', ephemeral: true });
           return;
         }
 
@@ -878,7 +1133,7 @@ client.on(Events.InteractionCreate, async interaction => {
           name: channelName,
           type: ChannelType.GuildText,
           parent: '1447731818139877509',
-          reason: `Ticket accepted by ${interaction.user.tag} (ID: ${ticketId})`,
+          reason: `Ticket opened for investigation by ${interaction.user.tag} (ID: ${ticketId})`,
         });
 
         await newChannel.send({
@@ -887,7 +1142,7 @@ client.on(Events.InteractionCreate, async interaction => {
         });
 
         await interaction.reply({
-          content: `Ticket **${ticketId}** accepted. Created channel ${newChannel.toString()}.`,
+          content: `Ticket **${ticketId}** opened for investigation. Created channel ${newChannel.toString()}.`,
           ephemeral: true,
         });
       } catch (error) {
@@ -914,11 +1169,11 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const modal = new ModalBuilder()
           .setCustomId(`tickets:modal:decision:deny:${ticketId}`)
-          .setTitle('Delete Ticket');
+          .setTitle('Deny Ticket');
 
         const reasonInput = new TextInputBuilder()
           .setCustomId('deny_reason')
-          .setLabel('Reason for deleting this ticket')
+          .setLabel('Reason for denying this ticket')
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(false)
           .setValue('');
@@ -927,11 +1182,11 @@ client.on(Events.InteractionCreate, async interaction => {
 
         await interaction.showModal(modal);
       } catch (error) {
-        console.error('[tickets] Failed to show delete ticket modal:', error);
+        console.error('[tickets] Failed to show deny ticket modal:', error);
         if (!interaction.replied && !interaction.deferred) {
           try {
             await interaction.reply({
-              content: 'There was an error opening the delete form. Please try again later.',
+              content: 'There was an error opening the deny form. Please try again later.',
               ephemeral: true,
             });
           } catch {
@@ -1096,6 +1351,11 @@ client.on(Events.InteractionCreate, async interaction => {
         }
 
         const reporter = interaction.user;
+
+        if (isDuplicateTicketSubmission({ guildId: guild.id, reporterId: reporter.id, type: 'report', nowMs: Date.now() })) {
+          await interaction.reply({ content: 'Already submitted. Give it a second and check your ticket ID.', ephemeral: true });
+          return;
+        }
         const ticketId = generateTicketId();
 
         const embed = new EmbedBuilder()
@@ -1126,7 +1386,7 @@ client.on(Events.InteractionCreate, async interaction => {
               .setStyle(ButtonStyle.Danger),
             new ButtonBuilder()
               .setCustomId(`tickets:button:report:deny:${ticketId}`)
-              .setLabel('Delete Ticket')
+              .setLabel('Deny Ticket')
               .setStyle(ButtonStyle.Danger),
           ),
         ];
@@ -1139,6 +1399,8 @@ client.on(Events.InteractionCreate, async interaction => {
           messageId: sentMessage.id,
           channelId: sentMessage.channelId,
           guildId: guild.id,
+          reporterId: reporter.id,
+          reporterName: reporter.tag,
           reporterTag: `${reporter.tag} (${reporter.id})`,
           rulebreaker,
           evidence,
@@ -1177,9 +1439,15 @@ client.on(Events.InteractionCreate, async interaction => {
           return;
         }
 
+        const robloxUsername = interaction.fields.getTextInputValue('roblox_username').trim();
         const whenBanned = interaction.fields.getTextInputValue('when_banned').trim();
         const whyBanned = interaction.fields.getTextInputValue('why_banned').trim();
         const whyReturn = interaction.fields.getTextInputValue('why_return').trim();
+
+        if (!robloxUsername) {
+          await interaction.reply({ content: 'Roblox username is required.', ephemeral: true });
+          return;
+        }
 
         if (!whenBanned || !whyBanned || !whyReturn) {
           await interaction.reply({
@@ -1211,6 +1479,11 @@ client.on(Events.InteractionCreate, async interaction => {
         }
 
         const reporter = interaction.user;
+
+        if (isDuplicateTicketSubmission({ guildId: guild.id, reporterId: reporter.id, type: 'appeal', nowMs: Date.now() })) {
+          await interaction.reply({ content: 'Already submitted. Give it a second and check your ticket ID.', ephemeral: true });
+          return;
+        }
         const ticketId = generateTicketId();
 
         const embed = new EmbedBuilder()
@@ -1219,6 +1492,7 @@ client.on(Events.InteractionCreate, async interaction => {
           .addFields(
             { name: 'Ticket ID', value: ticketId, inline: true },
             { name: 'User', value: `${reporter.tag} (${reporter.id})`, inline: false },
+            { name: 'Roblox username', value: robloxUsername, inline: false },
             { name: 'Ban date (approximate)', value: whenBanned, inline: false },
             { name: 'Reason for ban', value: whyBanned, inline: false },
             { name: 'Reason for appeal', value: whyReturn, inline: false },
@@ -1237,7 +1511,7 @@ client.on(Events.InteractionCreate, async interaction => {
               .setStyle(ButtonStyle.Danger),
             new ButtonBuilder()
               .setCustomId(`tickets:button:report:deny:${ticketId}`)
-              .setLabel('Delete Ticket')
+              .setLabel('Deny Ticket')
               .setStyle(ButtonStyle.Danger),
           ),
         ];
@@ -1250,7 +1524,10 @@ client.on(Events.InteractionCreate, async interaction => {
           messageId: sentMessage.id,
           channelId: sentMessage.channelId,
           guildId: guild.id,
+          reporterId: reporter.id,
+          reporterName: reporter.tag,
           reporterTag: `${reporter.tag} (${reporter.id})`,
+          robloxUsername,
           whenBanned,
           whyBanned,
           whyReturn,
@@ -1338,7 +1615,7 @@ client.on(Events.InteractionCreate, async interaction => {
               .setStyle(ButtonStyle.Danger),
             new ButtonBuilder()
               .setCustomId(`tickets:button:report:deny:${ticketId}`)
-              .setLabel('Delete Ticket')
+              .setLabel('Deny Ticket')
               .setStyle(ButtonStyle.Danger),
           ),
         ];
@@ -1415,6 +1692,13 @@ client.on(Events.InteractionCreate, async interaction => {
           ticketState.delete(ticketId);
         }
 
+        if (stored) {
+          dmTicketPresenter(interaction.client, stored, {
+            decision: 'Denied',
+            reason: reasonForDeny || 'None provided',
+          });
+        }
+
         try {
           const logChannel = await guild.channels
             .fetch('1447705274243616809')
@@ -1444,13 +1728,13 @@ client.on(Events.InteractionCreate, async interaction => {
           }
         } catch (error) {
           console.error(
-            '[tickets] Failed to log deleted ticket to ticket log channel:',
+            '[tickets] Failed to log denied ticket to ticket log channel:',
             error,
           );
         }
 
         await interaction.reply({
-          content: `Ticket **${ticketId}** has been deleted and logged.`,
+          content: `Ticket **${ticketId}** has been denied and logged.`,
           ephemeral: true,
         });
       } catch (error) {

@@ -4,6 +4,7 @@ const {
   EmbedBuilder,
 } = require('discord.js');
 const { ticketState } = require('../../ticket_state');
+const { dmTicketPresenter } = require('../../ticket_dm');
 
 // NOTE: This must match the TICKET_DECISION_LOG_CHANNEL_ID constant in index.js and t_review.js.
 const TICKET_DECISION_LOG_CHANNEL_ID = '1447705274243616809';
@@ -89,6 +90,7 @@ module.exports = {
     const staffUser = interaction.user;
 
     let ticketIdForLog = null;
+    let storedTicket = null;
 
     try {
       await interaction.deferReply({ ephemeral: true });
@@ -141,6 +143,7 @@ module.exports = {
         if (ticketId) {
           const stored = ticketState.get(ticketId);
           if (stored) {
+            storedTicket = stored;
             try {
               if (guild && stored.channelId && stored.messageId) {
                 const logChannel =
@@ -232,6 +235,13 @@ module.exports = {
           '[tickets] Failed to log denied ticket decision from /deny_ticket:',
           error,
         );
+      }
+
+      if (storedTicket) {
+        dmTicketPresenter(interaction.client, storedTicket, {
+          decision: 'Denied',
+          reason,
+        });
       }
 
       setTimeout(() => {

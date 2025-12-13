@@ -5,6 +5,7 @@ const {
 } = require('discord.js');
 const { ticketState } = require('../../ticket_state');
 const { incrementAcceptedTickets } = require('../../ticket_stats');
+const { dmTicketPresenter } = require('../../ticket_dm');
 
 // NOTE: This must match the TICKET_DECISION_LOG_CHANNEL_ID constant in index.js and t_review.js.
 const TICKET_DECISION_LOG_CHANNEL_ID = '1447705274243616809';
@@ -89,6 +90,7 @@ module.exports = {
 
     let ticketIdForLog = null;
     let reporterIdForStats = null;
+    let storedTicket = null;
 
     try {
       await interaction.deferReply({ ephemeral: true });
@@ -156,6 +158,7 @@ module.exports = {
         if (ticketId) {
           const stored = ticketState.get(ticketId);
           if (stored) {
+            storedTicket = stored;
             if (!reporterId && typeof stored.reporterTag === 'string') {
               const storedMatch = stored.reporterTag.match(/\((\d{5,})\)\s*$/);
               if (storedMatch) {
@@ -276,6 +279,13 @@ module.exports = {
           '[tickets] Failed to log accepted ticket decision from /accept_ticket:',
           error,
         );
+      }
+
+      if (storedTicket) {
+        dmTicketPresenter(interaction.client, storedTicket, {
+          decision: 'Accepted',
+          reason,
+        });
       }
 
       setTimeout(() => {

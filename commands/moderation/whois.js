@@ -75,15 +75,20 @@ function getInvalidatedWarns(guildId, userId) {
 function getModerationSummary(guildId, userId) {
   const store = loadModerationsSafe();
   const guildStore = store[guildId] || {};
-  const records = Object.values(guildStore);
 
   const kicks = [];
   const bans = [];
 
-  for (const record of records) {
+  for (const [recordId, record] of Object.entries(guildStore)) {
     if (!record || record.targetId !== userId) continue;
-    if (record.type === 'kick') kicks.push(record);
-    if (record.type === 'ban') bans.push(record);
+
+    const normalized = { ...record };
+    if (!normalized.id) {
+      normalized.id = recordId;
+    }
+
+    if (normalized.type === 'kick') kicks.push(normalized);
+    if (normalized.type === 'ban') bans.push(normalized);
   }
 
   function getLastIssuedAt(list) {
@@ -190,18 +195,32 @@ module.exports = {
     let banIdsField = null;
 
     if (bansForUser.length > 0) {
-      const activeBans = bansForUser.filter(record => !record.undone);
-      const list = activeBans.length > 0 ? activeBans : bansForUser;
+      const sorted = [...bansForUser].sort((a, b) => {
+        const aTs = a && a.issuedAt ? Date.parse(a.issuedAt) : NaN;
+        const bTs = b && b.issuedAt ? Date.parse(b.issuedAt) : NaN;
+        const aScore = Number.isFinite(aTs) ? aTs : 0;
+        const bScore = Number.isFinite(bTs) ? bTs : 0;
+        return bScore - aScore;
+      });
 
-      const ids = list.map(record => record.id).filter(Boolean);
-      if (ids.length > 0) {
-        let value = ids.join(', ');
-        if (value.length > 1024) {
-          value = `${value.slice(0, 1010)}…`;
-        }
-        const label = activeBans.length > 0 ? 'Ban Moderation IDs (active first)' : 'Ban Moderation IDs';
-        banIdsField = { name: label, value, inline: false };
+      const lines = sorted.slice(0, 10).map(record => {
+        const id = record.id || 'unknown';
+        const issuedTs = record.issuedAt ? Date.parse(record.issuedAt) : NaN;
+        const issuedUnix = Number.isFinite(issuedTs) ? Math.floor(issuedTs / 1000) : null;
+        const when = issuedUnix ? `<t:${issuedUnix}:F>` : 'unknown time';
+        const status = record.undone ? 'UNBANNED' : 'BANNED';
+        return `• ${status} — ${id} — ${when}`;
+      });
+
+      let value = lines.join('\n');
+      if (sorted.length > 10) {
+        value += `\n… and ${sorted.length - 10} more`;
       }
+      if (value.length > 1024) {
+        value = `${value.slice(0, 1010)}…`;
+      }
+
+      banIdsField = { name: 'Ban log (most recent first)', value, inline: false };
     }
 
     const notes = getNotesForMember(guildId, user.id);
@@ -356,6 +375,10 @@ module.exports = {
     });
 
     embed.addFields(...summaryFields);
+
+    if (banIdsField) {
+      embed.addFields(banIdsField);
+    }
 
     await interaction.reply({ embeds: [embed], ephemeral: true });
   },
