@@ -187,8 +187,10 @@ module.exports = {
       }
 
       // Log the final decision (Denied) in the ticket decision log channel.
+      // NOTE: We intentionally log even if we couldn't extract a friendly ticket ID so
+      // staff still get credit in /ms_check (which keys off Staff + Decision fields).
       try {
-        if (guild && staffUser && ticketIdForLog) {
+        if (guild && staffUser) {
           let decisionChannel = null;
           try {
             decisionChannel = await guild.channels.fetch(
@@ -206,8 +208,10 @@ module.exports = {
               ? reason.trim()
               : 'Not provided.';
 
+            const ticketIdValue = ticketIdForLog ?? channel.id;
+
             const fields = [
-              { name: 'Ticket ID', value: ticketIdForLog, inline: true },
+              { name: 'Ticket ID', value: String(ticketIdValue), inline: true },
               { name: 'Decision', value: 'Denied', inline: true },
               {
                 name: 'Staff',
@@ -217,6 +221,11 @@ module.exports = {
               {
                 name: 'Reason for denial',
                 value: reasonFieldValue,
+                inline: false,
+              },
+              {
+                name: 'Ticket channel',
+                value: `${channel.toString()} (${channel.id})`,
                 inline: false,
               },
             ];
