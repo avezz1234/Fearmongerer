@@ -8,6 +8,41 @@ const MOD_FILE = path.join(DATA_DIR, 'moderations.json');
 // NOTE: This must match the TICKET_DECISION_LOG_CHANNEL_ID constant in index.js and t_review.js.
 const TICKET_DECISION_LOG_CHANNEL_ID = '1447705274243616809';
 
+function getTimeWindow(timeKey) {
+  const now = new Date();
+
+  if (!timeKey) {
+    return { sinceMs: null, label: 'All time' };
+  }
+
+  const key = String(timeKey).trim().toLowerCase();
+
+  if (key === 'd') {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    return { sinceMs: start.getTime(), label: 'Today' };
+  }
+
+  if (key === 'w') {
+    // Monday-start week in the bot's local timezone.
+    const start = new Date(now);
+    const day = start.getDay(); // 0=Sun, 1=Mon, ...
+    const diffToMonday = (day + 6) % 7;
+    start.setDate(start.getDate() - diffToMonday);
+    start.setHours(0, 0, 0, 0);
+    return { sinceMs: start.getTime(), label: 'This week' };
+  }
+
+  if (key === 'm') {
+    const start = new Date(now);
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    return { sinceMs: start.getTime(), label: 'This month' };
+  }
+
+  return { sinceMs: null, label: 'All time' };
+}
+
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -27,7 +62,7 @@ function loadModerationsSafe() {
   }
 }
 
-function getModerationActionCount({ guildId, moderatorId }) {
+function getModerationActionCount({ guildId, moderatorId, sinceMs }) {
   if (!guildId || !moderatorId) return 0;
 
   const store = loadModerationsSafe();
@@ -44,6 +79,14 @@ function getModerationActionCount({ guildId, moderatorId }) {
     const issuedBy = entry.issuedBy;
     const undone = entry.undone === true;
 
+    if (sinceMs) {
+      const issuedAtRaw = entry.issuedAt;
+      const issuedAtMs = Date.parse(issuedAtRaw);
+      if (!Number.isFinite(issuedAtMs) || issuedAtMs < sinceMs) {
+        continue;
+      }
+    }
+
     if (issuedBy === moderatorId && !undone) {
       count += 1;
     }
@@ -52,7 +95,7 @@ function getModerationActionCount({ guildId, moderatorId }) {
   return count;
 }
 
-async function getTicketDecisionStatsForModerator(guild, moderatorId) {
+async function getTicketDecisionStatsForModerator(guild, moderatorId, { sinceMs } = {}) {
   const result = {
     accepted: 0,
     denied: 0,
@@ -76,33 +119,65 @@ async function getTicketDecisionStatsForModerator(guild, moderatorId) {
   }
 
   try {
-    const messages = await logChannel.messages.fetch({ limit: 100 });
+    const MAX_MESSAGES_TO_SCAN = 1000;
+    let scanned = 0;
+    let beforeId = null;
 
-    for (const message of messages.values()) {
-      if (!Array.isArray(message.embeds) || message.embeds.length === 0) {
-        continue;
+    // We page backwards until we either hit the start of the requested window or
+    // reach our scan cap.
+    // NOTE: This keeps "today/week/month" reasonably accurate even for busy channels.
+    // (All-time still limited by MAX_MESSAGES_TO_SCAN, same as the previous 100 message cap.)
+    while (scanned < MAX_MESSAGES_TO_SCAN) {
+      const fetched = await logChannel.messages.fetch({
+        limit: 100,
+        ...(beforeId ? { before: beforeId } : {}),
+      });
+
+      if (fetched.size === 0) break;
+
+      scanned += fetched.size;
+
+      for (const message of fetched.values()) {
+        if (sinceMs && message.createdTimestamp && message.createdTimestamp < sinceMs) {
+          // This message is older than our window; keep scanning only if the collection
+          // isn't strictly ordered. (In practice it is, so we can return early.)
+          continue;
+        }
+
+        if (!Array.isArray(message.embeds) || message.embeds.length === 0) {
+          continue;
+        }
+
+        const embed = message.embeds[0];
+        const fields = embed.fields ?? [];
+
+        const staffField = fields.find(field => field.name === 'Staff');
+        const decisionField = fields.find(field => field.name === 'Decision');
+
+        if (!staffField || !decisionField) continue;
+
+        const staffValue = staffField.value || '';
+        const idMatch = staffValue.match(/\((\d{5,})\)\s*$/);
+        const staffId = idMatch ? idMatch[1] : null;
+
+        if (staffId !== moderatorId) continue;
+
+        const decision = (decisionField.value || '').trim().toLowerCase();
+
+        if (decision === 'accepted') {
+          result.accepted += 1;
+        } else if (decision === 'denied') {
+          result.denied += 1;
+        }
       }
 
-      const embed = message.embeds[0];
-      const fields = embed.fields ?? [];
+      const oldest = fetched.last();
+      if (!oldest) break;
 
-      const staffField = fields.find(field => field.name === 'Staff');
-      const decisionField = fields.find(field => field.name === 'Decision');
+      beforeId = oldest.id;
 
-      if (!staffField || !decisionField) continue;
-
-      const staffValue = staffField.value || '';
-      const idMatch = staffValue.match(/\((\d{5,})\)\s*$/);
-      const staffId = idMatch ? idMatch[1] : null;
-
-      if (staffId !== moderatorId) continue;
-
-      const decision = (decisionField.value || '').trim().toLowerCase();
-
-      if (decision === 'accepted') {
-        result.accepted += 1;
-      } else if (decision === 'denied') {
-        result.denied += 1;
+      if (sinceMs && oldest.createdTimestamp && oldest.createdTimestamp < sinceMs) {
+        break;
       }
     }
   } catch (error) {
@@ -123,6 +198,17 @@ module.exports = {
         .setName('moderator')
         .setDescription('Moderator to check; defaults to yourself')
         .setRequired(false),
+    )
+    .addStringOption(option =>
+      option
+        .setName('time')
+        .setDescription('Time window: d=today, w=this week, m=this month (defaults to all time)')
+        .setRequired(false)
+        .addChoices(
+          { name: 'Today (d)', value: 'd' },
+          { name: 'This week (w)', value: 'w' },
+          { name: 'This month (m)', value: 'm' },
+        ),
     ),
   async execute(interaction) {
     const guild = interaction.guild;
@@ -155,15 +241,18 @@ module.exports = {
       const guildId = guild.id;
       const moderatorId = targetUser.id;
 
+      const timeKey = interaction.options.getString('time') ?? null;
+      const { sinceMs, label: timeLabel } = getTimeWindow(timeKey);
+
       const modActionCount = getModerationActionCount({
         guildId,
         moderatorId,
+        sinceMs,
       });
 
-      const ticketStats = await getTicketDecisionStatsForModerator(
-        guild,
-        moderatorId,
-      );
+      const ticketStats = await getTicketDecisionStatsForModerator(guild, moderatorId, {
+        sinceMs,
+      });
 
       const acceptedTickets = ticketStats.accepted;
       const deniedTickets = ticketStats.denied;
@@ -174,7 +263,7 @@ module.exports = {
       const embed = new EmbedBuilder()
         .setTitle('Moderator Scorecard')
         .setColor(0x2b2d31)
-        .setDescription(`Scorecard for **${label}**`)
+        .setDescription(`Scorecard for **${label}**\nTime window: **${timeLabel}**`)
         .addFields(
           {
             name: 'Tickets accepted',
