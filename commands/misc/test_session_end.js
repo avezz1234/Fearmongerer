@@ -103,6 +103,7 @@ module.exports = {
     const startedUnix = Number.isFinite(startedAtMs) ? Math.floor(startedAtMs / 1000) : null;
     const endedUnix = Number.isFinite(endedAtMs) ? Math.floor(endedAtMs / 1000) : null;
     const plannedStartUnix = typeof ended.startAtUnix === 'number' ? ended.startAtUnix : null;
+    const timeZone = typeof ended.timeZone === 'string' && ended.timeZone.trim() ? ended.timeZone.trim() : null;
 
     const embed = new EmbedBuilder()
       .setTitle('Test Session Attendance')
@@ -112,6 +113,7 @@ module.exports = {
         { name: 'Channel', value: `<#${ended.channelId}>`, inline: true },
         { name: 'Duration (planned)', value: ended.durationMinutes ? `${ended.durationMinutes}m` : 'Unknown', inline: true },
         { name: 'Start time (planned)', value: plannedStartUnix ? `<t:${plannedStartUnix}:F>` : (ended.startTimeText || 'Unknown'), inline: true },
+        { name: 'Timezone', value: timeZone || 'Not provided', inline: true },
         { name: 'Announced at', value: startedUnix ? `<t:${startedUnix}:F>` : 'Unknown', inline: true },
         { name: 'Ended at', value: endedUnix ? `<t:${endedUnix}:F>` : 'Unknown', inline: true },
         { name: `Present (${present.length})`, value: presentLines.length ? formatMemberList(presentLines) : 'None', inline: false },

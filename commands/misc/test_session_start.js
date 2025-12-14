@@ -9,6 +9,123 @@ const testSessionState = require('../../test_session_state');
 
 const TESTER_ROLE_ID = '1447218798112538654';
 
+function isValidIanaTimeZone(timeZone) {
+  if (!timeZone) return false;
+  try {
+    // Throws RangeError for invalid zones.
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getZonedDateParts(date, timeZone) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+
+  const parts = dtf.formatToParts(date);
+  const out = {};
+  for (const p of parts) {
+    if (p.type === 'year') out.year = Number(p.value);
+    if (p.type === 'month') out.month = Number(p.value);
+    if (p.type === 'day') out.day = Number(p.value);
+    if (p.type === 'hour') out.hour = Number(p.value);
+    if (p.type === 'minute') out.minute = Number(p.value);
+    if (p.type === 'second') out.second = Number(p.value);
+  }
+
+  return out;
+}
+
+function getTimeZoneOffsetMs(utcMs, timeZone) {
+  const zoned = getZonedDateParts(new Date(utcMs), timeZone);
+  const asUtc = Date.UTC(
+    zoned.year,
+    (zoned.month || 1) - 1,
+    zoned.day || 1,
+    zoned.hour || 0,
+    zoned.minute || 0,
+    zoned.second || 0,
+  );
+  return asUtc - utcMs;
+}
+
+function utcMsFromZonedLocal(y, m, d, hour24, minute, timeZone) {
+  const localAsUtc = Date.UTC(y, m - 1, d, hour24, minute, 0, 0);
+
+  // Fixed-point iteration (handles DST transitions in most cases).
+  let utcMs = localAsUtc;
+  for (let i = 0; i < 3; i += 1) {
+    const offsetMs = getTimeZoneOffsetMs(utcMs, timeZone);
+    utcMs = localAsUtc - offsetMs;
+  }
+
+  return utcMs;
+}
+
+function computeNextStartUnixInTimeZone(spec, nowMs, timeZone) {
+  if (!spec) return null;
+  const hour24 = spec.hour24;
+  const minute = spec.minute;
+  if (!Number.isFinite(hour24) || !Number.isFinite(minute)) return null;
+  if (!isValidIanaTimeZone(timeZone)) return null;
+
+  const nowZoned = getZonedDateParts(new Date(nowMs), timeZone);
+  if (!nowZoned.year || !nowZoned.month || !nowZoned.day) return null;
+
+  const todayUtcMs = utcMsFromZonedLocal(
+    nowZoned.year,
+    nowZoned.month,
+    nowZoned.day,
+    hour24,
+    minute,
+    timeZone,
+  );
+
+  let candidateUtcMs = todayUtcMs;
+  if (candidateUtcMs < nowMs) {
+    // Add one calendar day.
+    const tomorrow = new Date(Date.UTC(nowZoned.year, nowZoned.month - 1, nowZoned.day) + 24 * 60 * 60 * 1000);
+    candidateUtcMs = utcMsFromZonedLocal(
+      tomorrow.getUTCFullYear(),
+      tomorrow.getUTCMonth() + 1,
+      tomorrow.getUTCDate(),
+      hour24,
+      minute,
+      timeZone,
+    );
+  }
+
+  return Math.floor(candidateUtcMs / 1000);
+}
+
+function formatZonedDateTime(utcMs, timeZone) {
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZoneName: 'short',
+    });
+    return dtf.format(new Date(utcMs));
+  } catch {
+    return null;
+  }
+}
+
 function parseStartTimeSpec(raw) {
   const input = String(raw || '').trim();
   const m = input.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
@@ -113,6 +230,12 @@ module.exports = {
         .setName('duration')
         .setDescription('Example: 90m, 2h, 1h30m')
         .setRequired(true),
+    )
+    .addStringOption(option =>
+      option
+        .setName('timezone')
+        .setDescription('IANA timezone to interpret start_time in (example: America/New_York, UTC)')
+        .setRequired(true),
     ),
   async execute(interaction) {
     if (!interaction.guild) {
@@ -124,6 +247,16 @@ module.exports = {
     const sessionChannel = interaction.options.getChannel('channel', true);
     const startTimeRaw = interaction.options.getString('start_time', true);
     const durationRaw = interaction.options.getString('duration', true);
+    const timeZoneRaw = interaction.options.getString('timezone', true);
+
+    const timeZone = String(timeZoneRaw || '').trim();
+    if (!isValidIanaTimeZone(timeZone)) {
+      await interaction.reply({
+        content: 'Bad `timezone`. Use an IANA timezone like `America/New_York` (or `UTC`).',
+        ephemeral: true,
+      });
+      return;
+    }
 
     const startTimeSpec = parseStartTimeSpec(startTimeRaw);
     if (!startTimeSpec) {
@@ -135,9 +268,10 @@ module.exports = {
     }
 
     const startTimeText = startTimeSpec.displayText;
-    const startAtUnix = computeNextStartUnix(startTimeSpec, Date.now());
+    const startAtUnix = computeNextStartUnixInTimeZone(startTimeSpec, Date.now(), timeZone);
+    const startTimeZonedText = startAtUnix ? formatZonedDateTime(startAtUnix * 1000, timeZone) : null;
     const startTimeValue = startAtUnix
-      ? `<t:${startAtUnix}:F>\n(<t:${startAtUnix}:R>)`
+      ? `${startTimeZonedText || startTimeText}\n<t:${startAtUnix}:F>\n(<t:${startAtUnix}:R>)`
       : startTimeText;
 
     const durationMinutes = parseDurationMinutes(durationRaw);
@@ -166,6 +300,7 @@ module.exports = {
       .addFields(
         { name: 'Start time', value: startTimeValue, inline: true },
         { name: 'Duration', value: formatDuration(durationMinutes), inline: true },
+        { name: 'Timezone', value: timeZone, inline: true },
         { name: 'Channel', value: sessionChannel.toString(), inline: false },
       )
       .setTimestamp(new Date());
@@ -186,6 +321,7 @@ module.exports = {
       channelId: sessionChannel.id,
       startTimeText,
       startAtUnix,
+      timeZone,
       durationMinutes,
       announcedBy: interaction.user.id,
       announcementChannelId: announceChannel.id,
