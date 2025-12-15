@@ -159,6 +159,13 @@ module.exports = {
           const stored = ticketState.get(ticketId);
           if (stored) {
             storedTicket = stored;
+            if (typeof stored === 'object') {
+              stored.finalDecision = 'Accepted';
+              stored.finalReason = String(reason || 'Not provided.').trim() || 'Not provided.';
+              stored.finalizedBy = `${staffUser.tag} (${staffUser.id})`;
+              stored.finalizedAt = new Date().toISOString();
+              stored.finalizedFromChannelId = channel.id;
+            }
             if (!reporterId && typeof stored.reporterTag === 'string') {
               const storedMatch = stored.reporterTag.match(/\((\d{5,})\)\s*$/);
               if (storedMatch) {

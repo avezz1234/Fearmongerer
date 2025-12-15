@@ -1,6 +1,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { archiveTicket } = require('./ticket_archive_state');
+
 const DATA_DIR = path.join(__dirname, 'data');
 const TICKETS_FILE = path.join(DATA_DIR, 'tickets.json');
 
@@ -65,6 +67,15 @@ ticketState.set = (key, value) => {
 };
 
 ticketState.delete = key => {
+  const existing = ticketState.get(key) ?? null;
+  if (existing) {
+    try {
+      archiveTicket(String(key), existing, { archivedAt: new Date().toISOString() });
+    } catch (error) {
+      console.error('[tickets] Failed to archive ticket before delete:', error);
+    }
+  }
+
   const result = originalDelete(key);
   saveTicketsToDisk(ticketState);
   return result;

@@ -1,8 +1,51 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const { ticketState } = require('../../ticket_state');
+const { getArchivedTicket } = require('../../ticket_archive_state');
 
 // NOTE: This must match the TICKET_DECISION_LOG_CHANNEL_ID constant in index.js.
 const TICKET_DECISION_LOG_CHANNEL_ID = '1447705274243616809';
+
+function truncateText(value, maxLen) {
+  const text = value == null ? '' : String(value);
+  if (text.length <= maxLen) return text;
+  return `${text.slice(0, Math.max(0, maxLen - 1))}…`;
+}
+
+function formatTicketSubmission(stored) {
+  if (!stored || typeof stored !== 'object') return [];
+  const type = stored.type;
+  const lines = [];
+
+  if (type === 'report') {
+    if (stored.reporterTag) lines.push(`**Reporter:** ${stored.reporterTag}`);
+    if (stored.rulebreaker) lines.push(`**Reported user:** ${truncateText(stored.rulebreaker, 512)}`);
+    if (stored.evidence) lines.push(`**Evidence:** ${truncateText(stored.evidence, 512)}`);
+    if (stored.reason) lines.push(`**Reason:** ${truncateText(stored.reason, 900)}`);
+    if (stored.notes) lines.push(`**Additional info:** ${truncateText(stored.notes, 900)}`);
+    return lines;
+  }
+
+  if (type === 'appeal') {
+    if (stored.reporterTag) lines.push(`**User:** ${stored.reporterTag}`);
+    if (stored.robloxUsername) lines.push(`**Roblox username:** ${truncateText(stored.robloxUsername, 256)}`);
+    if (stored.whenBanned) lines.push(`**When banned (approx):** ${truncateText(stored.whenBanned, 512)}`);
+    if (stored.whyBanned) lines.push(`**Why banned:** ${truncateText(stored.whyBanned, 900)}`);
+    if (stored.whyReturn) lines.push(`**Why should we unban:** ${truncateText(stored.whyReturn, 900)}`);
+    return lines;
+  }
+
+  if (type === 'other') {
+    if (stored.reporterTag) lines.push(`**User:** ${stored.reporterTag}`);
+    if (stored.description) lines.push(`**Request:** ${truncateText(stored.description, 900)}`);
+    return lines;
+  }
+
+  // Fallback: show a few common fields if present.
+  if (stored.reporterTag) lines.push(`**User:** ${stored.reporterTag}`);
+  if (stored.description) lines.push(`**Description:** ${truncateText(stored.description, 900)}`);
+  if (stored.reason) lines.push(`**Reason:** ${truncateText(stored.reason, 900)}`);
+  return lines;
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -38,8 +81,9 @@ module.exports = {
       return;
     }
 
-    // 1) Check in-memory ticket state (open tickets only)
-    const stored = ticketState.get(ticketId) ?? null;
+    // 1) Check in-memory ticket state (open tickets)
+    // 2) Fallback to on-disk archive (closed/deleted tickets)
+    const stored = ticketState.get(ticketId) ?? getArchivedTicket(ticketId) ?? null;
 
     // 2) Find any active ticket channels whose name contains (TICKETID)
     const matchingChannels = guild.channels.cache.filter(channel => {
@@ -106,6 +150,15 @@ module.exports = {
 
     // Basic/open metadata from ticketState if present
     if (stored) {
+      const submissionLines = formatTicketSubmission(stored);
+      if (submissionLines.length) {
+        embed.addFields({
+          name: 'Ticket submission',
+          value: submissionLines.join('\n').slice(0, 1024),
+          inline: false,
+        });
+      }
+
       embed.addFields({
         name: 'Stored metadata',
         value: [

@@ -144,6 +144,13 @@ module.exports = {
           const stored = ticketState.get(ticketId);
           if (stored) {
             storedTicket = stored;
+            if (typeof stored === 'object') {
+              stored.finalDecision = 'Denied';
+              stored.finalReason = reason;
+              stored.finalizedBy = `${staffUser.tag} (${staffUser.id})`;
+              stored.finalizedAt = new Date().toISOString();
+              stored.finalizedFromChannelId = channel.id;
+            }
             try {
               if (guild && stored.channelId && stored.messageId) {
                 const logChannel =

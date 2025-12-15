@@ -1707,6 +1707,13 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const stored = ticketState.get(ticketId);
 
+        if (stored && typeof stored === 'object') {
+          stored.finalDecision = 'Ignored';
+          stored.finalReason = 'Ignored via ticket panel';
+          stored.finalizedBy = `${interaction.user.tag} (${interaction.user.id})`;
+          stored.finalizedAt = new Date().toISOString();
+        }
+
         if (stored && stored.channelId && stored.messageId) {
           try {
             const logChannel =
@@ -2162,6 +2169,13 @@ client.on(Events.InteractionCreate, async interaction => {
         const reasonForDeny = reasonRaw.trim();
 
         const stored = ticketState.get(ticketId);
+
+        if (stored && typeof stored === 'object') {
+          stored.finalDecision = 'Denied';
+          stored.finalReason = reasonForDeny || 'None provided';
+          stored.finalizedBy = `${interaction.user.tag} (${interaction.user.id})`;
+          stored.finalizedAt = new Date().toISOString();
+        }
 
         if (stored && stored.channelId && stored.messageId) {
           try {
