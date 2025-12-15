@@ -189,6 +189,85 @@ function findMostRecentOpenAnonPollByOwner(guildId, ownerId) {
   return polls[0] || null;
 }
 
+function ensureVotesObject(poll) {
+  if (!poll || typeof poll !== 'object') return;
+  if (!poll.votes || typeof poll.votes !== 'object') {
+    poll.votes = {};
+  }
+}
+
+function addAnonPollSyntheticVotes(guildId, pollId, choiceIndex, count, { prefix } = {}) {
+  if (!guildId || !pollId) return null;
+
+  const store = loadStore();
+  const bucket = getGuildBucket(store, guildId);
+  const poll = bucket.anonPollsById[pollId];
+  if (!poll || typeof poll !== 'object') return null;
+  if (poll.closed) return poll;
+
+  const options = Array.isArray(poll.options) ? poll.options : [];
+  const idx = Number.isFinite(choiceIndex) ? Math.floor(choiceIndex) : NaN;
+  if (!Number.isFinite(idx) || idx < 0 || idx >= options.length) return null;
+
+  const n = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+  if (!n) return poll;
+
+  ensureVotesObject(poll);
+  const tag = typeof prefix === 'string' && prefix.trim().length ? prefix.trim() : 'pweewoo';
+  const now = Date.now();
+
+  for (let i = 0; i < n; i += 1) {
+    const key = `${tag}:${pollId}:${now}:${Math.random().toString(16).slice(2)}:${i}`;
+    poll.votes[key] = idx;
+  }
+
+  bucket.anonPollsById[pollId] = poll;
+  saveStore(store);
+  return poll;
+}
+
+function removeAnonPollVotesFromChoice(guildId, pollId, choiceIndex, count, { preferPrefix } = {}) {
+  if (!guildId || !pollId) return { poll: null, removed: 0 };
+
+  const store = loadStore();
+  const bucket = getGuildBucket(store, guildId);
+  const poll = bucket.anonPollsById[pollId];
+  if (!poll || typeof poll !== 'object') return { poll: null, removed: 0 };
+  if (poll.closed) return { poll, removed: 0 };
+
+  const options = Array.isArray(poll.options) ? poll.options : [];
+  const idx = Number.isFinite(choiceIndex) ? Math.floor(choiceIndex) : NaN;
+  if (!Number.isFinite(idx) || idx < 0 || idx >= options.length) return { poll: null, removed: 0 };
+
+  const n = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+  if (!n) return { poll, removed: 0 };
+
+  ensureVotesObject(poll);
+  const prefer = typeof preferPrefix === 'string' && preferPrefix.trim().length ? preferPrefix.trim() : '';
+
+  const matchingKeys = Object.entries(poll.votes)
+    .filter(([, v]) => v === idx)
+    .map(([k]) => k);
+
+  matchingKeys.sort((a, b) => {
+    const ap = prefer && a.startsWith(prefer) ? 0 : 1;
+    const bp = prefer && b.startsWith(prefer) ? 0 : 1;
+    if (ap !== bp) return ap - bp;
+    return a.localeCompare(b);
+  });
+
+  let removed = 0;
+  for (const key of matchingKeys) {
+    if (removed >= n) break;
+    delete poll.votes[key];
+    removed += 1;
+  }
+
+  bucket.anonPollsById[pollId] = poll;
+  saveStore(store);
+  return { poll, removed };
+}
+
 module.exports = {
   createAnonPoll,
   getAnonPoll,
@@ -197,4 +276,6 @@ module.exports = {
   listExpiredAnonPolls,
   listAnonPolls,
   findMostRecentOpenAnonPollByOwner,
+  addAnonPollSyntheticVotes,
+  removeAnonPollVotesFromChoice,
 };
