@@ -101,7 +101,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(`Ticket Review — ${ticketId}`)
-      .setColor(0x2b2d31)
+      .setColor(0x002b2d31)
       .setTimestamp(new Date());
 
     // Basic/open metadata from ticketState if present

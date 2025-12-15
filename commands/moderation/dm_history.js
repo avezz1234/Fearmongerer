@@ -136,7 +136,7 @@ module.exports = {
 
     const summary = new EmbedBuilder()
       .setTitle(`DM History: ${targetUser.tag}`)
-      .setColor(0x5865f2)
+      .setColor(0x005865f2)
       .addFields(
         { name: 'User', value: `${targetUser.tag} (${targetUser.id})`, inline: false },
         { name: 'Messages fetched', value: String(all.length), inline: true },
@@ -146,7 +146,7 @@ module.exports = {
 
     const detailEmbeds = chunkLinesIntoEmbeds(lines, {
       title: 'DM Messages',
-      color: 0x2b2d31,
+      color: 0x002b2d31,
     });
 
     const embeds = [summary, ...detailEmbeds].slice(0, MAX_EMBEDS);

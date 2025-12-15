@@ -68,7 +68,7 @@ module.exports = {
       try {
         const embed = new EmbedBuilder()
           .setTitle(`You have been muted in ${interaction.guild.name}`)
-          .setColor(0xffcc00)
+          .setColor(0x00ffcc00)
           .setDescription(reason)
           .addFields(
             { name: 'Duration', value: `${clampedMinutes} minute(s)`, inline: true },

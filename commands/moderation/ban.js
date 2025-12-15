@@ -120,7 +120,7 @@ module.exports = {
       try {
         const embed = new EmbedBuilder()
           .setTitle(`You have been banned from ${interaction.guild.name}`)
-          .setColor(0xff0000)
+          .setColor(0x00ff0000)
           .setDescription(reason)
           .addFields({ name: 'Moderation ID', value: moderationId, inline: false })
           .setTimestamp();

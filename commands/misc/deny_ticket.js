@@ -232,7 +232,7 @@ module.exports = {
 
             const embed = new EmbedBuilder()
               .setTitle('Ticket Decision')
-              .setColor(0xe74c3c)
+              .setColor(0x00e74c3c)
               .addFields(fields)
               .setTimestamp(new Date());
 

@@ -127,7 +127,7 @@ module.exports = {
     if (raw.length <= directLimit) {
       const embed = new EmbedBuilder()
         .setTitle('Raw Data')
-        .setColor(0x2b2d31)
+        .setColor(0x002b2d31)
         .setDescription(raw);
 
       await interaction.reply({
@@ -145,7 +145,7 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setTitle('Raw Data')
-        .setColor(0x2b2d31)
+        .setColor(0x002b2d31)
         .setDescription('Raw data dump attached as JSON file (full, unindented content).');
 
       await interaction.reply({

@@ -66,7 +66,7 @@ module.exports = {
       try {
         role = await guild.roles.create({
           name: CONTEST_BLACKLIST_ROLE_NAME,
-          color: 0x2b2d31,
+          color: 0x002b2d31,
           mentionable: false,
           reason: `Created automatically by /${interaction.commandName}`,
         });

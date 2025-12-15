@@ -18,7 +18,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle('Ticket Rules & Guidelines')
-      .setColor(0x3498db)
+      .setColor(0x003498db)
       .setDescription('Please read and follow these rules when submitting a ticket.')
       .addFields(
         {

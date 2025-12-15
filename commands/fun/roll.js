@@ -24,7 +24,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle('Roll Debug')
-      .setColor(0xffcc00)
+      .setColor(0x00ffcc00)
       .addFields(
         { name: 'Result', value: `${result}`, inline: true },
         { name: 'Sides', value: `${sides}`, inline: true },

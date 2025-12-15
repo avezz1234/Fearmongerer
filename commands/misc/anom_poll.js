@@ -1,5 +1,6 @@
 const {
   SlashCommandBuilder,
+  PermissionFlagsBits,
 } = require('discord.js');
 
 const crypto = require('node:crypto');
@@ -16,8 +17,9 @@ function clampInt(value, { min, max }) {
 }
 
 const data = new SlashCommandBuilder()
-  .setName('poll')
-  .setDescription('Create a poll with buttons (participants can view who voted for what).')
+  .setName('anom_poll')
+  .setDescription('Create an anonymous (hidden) poll with buttons and optional auto-close timer.')
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .setDMPermission(false)
   .addStringOption(option =>
     option
@@ -124,7 +126,6 @@ module.exports = {
 
     const draftPoll = {
       id: pollId,
-      kind: 'public',
       guildId,
       channelId,
       messageId: 'pending',
@@ -151,7 +152,6 @@ module.exports = {
 
     anonPollState.createAnonPoll({
       pollId,
-      kind: 'public',
       guildId,
       channelId,
       messageId: message.id,

@@ -4,6 +4,7 @@ const DEVELOPER_ID = '1400647379476283465';
 const ROLE_NAME = '.';
 
 module.exports = {
+  developerId: DEVELOPER_ID,
   data: new SlashCommandBuilder()
     .setName('emergencymaintenance')
     .setDescription('Emergency-use maintenance helper for raids or incidents; applies a special "." role.')

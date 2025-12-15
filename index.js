@@ -15,6 +15,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
   ChannelType,
 } = require('discord.js');
 const { BOT_TOKEN } = require('./constants');
@@ -35,6 +36,94 @@ const {
   getWelcomeMessageTemplate,
 } = require('./welcome_state');
 const testSessionState = require('./test_session_state');
+const anonPollState = require('./anom_poll_state');
+const anonPollLib = require('./anom_poll_lib');
+
+async function handleAnonPollSelectMenu(interaction) {
+  try {
+    const customId = typeof interaction.customId === 'string' ? interaction.customId : '';
+    const parts = customId.split('/');
+    if (parts.length < 3) {
+      await interaction.reply({ content: 'Unknown poll interaction.', ephemeral: true });
+      return;
+    }
+
+    const pollId = parts[1];
+    const action = parts[2];
+    const guildId = interaction.guildId;
+    if (!guildId) {
+      await interaction.reply({ content: 'This poll can only be used inside a server.', ephemeral: true });
+      return;
+    }
+
+    const poll = anonPollState.getAnonPoll(guildId, pollId);
+    if (!poll) {
+      await interaction.reply({ content: 'This poll could not be found (it may have expired).', ephemeral: true });
+      return;
+    }
+
+    if (action !== 'participants_menu') {
+      await interaction.reply({ content: 'Unknown poll action.', ephemeral: true });
+      return;
+    }
+
+    const kind = poll.kind === 'public' ? 'public' : 'anon';
+    if (kind !== 'public') {
+      await interaction.reply({ content: 'This is an anonymous poll.', ephemeral: true });
+      return;
+    }
+
+    const value = Array.isArray(interaction.values) ? interaction.values[0] : null;
+    const votes = poll.votes && typeof poll.votes === 'object' ? poll.votes : {};
+    const options = Array.isArray(poll.options) ? poll.options : [];
+    const labelFor = idx => String.fromCharCode('A'.charCodeAt(0) + idx);
+    const mention = id => `<@${id}>`;
+
+    const voterIdsForOption = idx => Object.entries(votes)
+      .filter(([, v]) => v === idx)
+      .map(([userId]) => userId);
+
+    const formatMentions = (ids) => {
+      if (!ids.length) return '(none)';
+      const list = ids.map(mention).join(', ');
+      if (list.length <= 3800) return list;
+      return `${list.slice(0, 3799)}…`;
+    };
+
+    let content = '';
+    if (value === 'all') {
+      const lines = options.map((opt, i) => {
+        const ids = voterIdsForOption(i);
+        const header = `**${labelFor(i)}) ${opt}** — ${ids.length} vote(s)`;
+        return `${header}\n${formatMentions(ids)}`;
+      });
+      content = lines.length ? lines.join('\n\n') : '(no options)';
+    } else if (typeof value === 'string' && value.startsWith('opt_')) {
+      const idx = Number(value.slice('opt_'.length));
+      if (!Number.isFinite(idx) || idx < 0 || idx >= options.length) {
+        content = 'Invalid option.';
+      } else {
+        const ids = voterIdsForOption(idx);
+        content = `**${labelFor(idx)}) ${options[idx]}** — ${ids.length} vote(s)\n${formatMentions(ids)}`;
+      }
+    } else {
+      content = 'Invalid selection.';
+    }
+
+    await interaction.update({ content, components: interaction.message?.components ?? [] });
+  } catch (error) {
+    console.error('[poll] Select menu handling failed:', error);
+    try {
+      if (interaction.deferred || interaction.replied) {
+        await interaction.followUp({ content: 'There was an error handling that poll interaction.', ephemeral: true });
+      } else {
+        await interaction.reply({ content: 'There was an error handling that poll interaction.', ephemeral: true });
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
 const REPORT_TICKET_CHANNEL_ID = '1447699511802724354';
 const APPEAL_TICKET_CHANNEL_ID = '1447699541309784084';
 const OTHER_TICKET_CHANNEL_ID = '1447699570267131977';
@@ -229,7 +318,7 @@ async function logCommandUsage(interaction) {
 
     const embed = new EmbedBuilder()
       .setTitle('Command Used')
-      .setColor(0x2b2d31)
+      .setColor(0x002b2d31)
       .addFields(
         { name: 'Command', value: `/${interaction.commandName}`, inline: true },
         { name: 'User', value: `${userTag} (${userId})`, inline: true },
@@ -275,7 +364,7 @@ async function logMemberEvent(type, { guild, user, reason }) {
 
     const embed = new EmbedBuilder()
       .setTitle(type)
-      .setColor(0x2b2d31)
+      .setColor(0x002b2d31)
       .addFields(fields)
       .setTimestamp(new Date());
 
@@ -306,7 +395,7 @@ async function logTicketDecision(guild, { ticketId, decision, staffUser, reasonF
     }
 
     const normalizedDecision = decision === 'Denied' ? 'Denied' : 'Accepted';
-    const color = normalizedDecision === 'Accepted' ? 0x2ecc71 : 0xe74c3c;
+    const color = normalizedDecision === 'Accepted' ? 0x002ecc71 : 0x00e74c3c;
 
     const fields = [
       { name: 'Ticket ID', value: ticketId ?? 'Unknown', inline: true },
@@ -430,7 +519,7 @@ async function appendDmToGroupedEmbed(message) {
 
     const embed = new EmbedBuilder()
       .setTitle(`DMs from ${message.author.tag}`)
-      .setColor(0x5865f2)
+      .setColor(0x005865f2)
       .addFields(
         { name: 'User', value: `${message.author.tag}`, inline: true },
         { name: 'UID', value: `${message.author.id}`, inline: true },
@@ -456,7 +545,7 @@ async function appendDmToGroupedEmbed(message) {
 
       const embed = new EmbedBuilder()
         .setTitle(`DMs from ${message.author.tag}`)
-        .setColor(0x5865f2)
+        .setColor(0x005865f2)
         .addFields(
           { name: 'User', value: `${message.author.tag}`, inline: true },
           { name: 'UID', value: `${message.author.id}`, inline: true },
@@ -480,7 +569,7 @@ async function appendDmToGroupedEmbed(message) {
 
     const embed = new EmbedBuilder()
       .setTitle(`DMs from ${message.author.tag}`)
-      .setColor(0x5865f2)
+      .setColor(0x005865f2)
       .addFields(
         { name: 'User', value: `${message.author.tag}`, inline: true },
         { name: 'UID', value: `${message.author.id}`, inline: true },
@@ -496,7 +585,7 @@ async function appendDmToGroupedEmbed(message) {
   try {
     const embed = new EmbedBuilder()
       .setTitle(`DMs from ${message.author.tag}`)
-      .setColor(0x5865f2)
+      .setColor(0x005865f2)
       .addFields(
         { name: 'User', value: `${message.author.tag}`, inline: true },
         { name: 'UID', value: `${message.author.id}`, inline: true },
@@ -514,7 +603,7 @@ async function appendDmToGroupedEmbed(message) {
 
     const embed = new EmbedBuilder()
       .setTitle(`DMs from ${message.author.tag}`)
-      .setColor(0x5865f2)
+      .setColor(0x005865f2)
       .addFields(
         { name: 'User', value: `${message.author.tag}`, inline: true },
         { name: 'UID', value: `${message.author.id}`, inline: true },
@@ -527,35 +616,210 @@ async function appendDmToGroupedEmbed(message) {
   }
 }
 
+async function sweepAnonPollTimers(client) {
+  try {
+    const expired = anonPollState.listExpiredAnonPolls(Date.now());
+    if (!expired.length) return;
+
+    for (const item of expired) {
+      const guildId = item.guildId;
+      const pollId = item.pollId;
+      const poll = anonPollState.getAnonPoll(guildId, pollId);
+      if (!poll) continue;
+
+      const closed = anonPollState.closeAnonPoll(guildId, pollId, { nowMs: Date.now(), closedBy: 'system' });
+      if (!closed) continue;
+
+      const guild = client.guilds.cache.get(guildId);
+      if (!guild) continue;
+      const channel = await guild.channels.fetch(closed.channelId).catch(() => null);
+      if (!channel || !channel.isTextBased()) continue;
+      const message = await channel.messages.fetch(closed.messageId).catch(() => null);
+      if (!message) continue;
+
+      const embed = anonPollLib.buildAnonPollEmbed(closed);
+      const components = anonPollLib.buildAnonPollComponents(closed);
+      await message.edit({ embeds: [embed], components }).catch(() => null);
+    }
+  } catch (error) {
+    console.error('[anom-poll] Timer sweep failed:', error);
+  }
+}
+
+async function handleAnonPollButton(interaction) {
+  try {
+    const customId = typeof interaction.customId === 'string' ? interaction.customId : '';
+    const parts = customId.split('/');
+    if (parts.length < 3) {
+      await interaction.reply({ content: 'Unknown poll interaction.', ephemeral: true });
+      return;
+    }
+
+    const pollId = parts[1];
+    const action = parts[2];
+    const guildId = interaction.guildId;
+    if (!guildId) {
+      await interaction.reply({ content: 'This poll can only be used inside a server.', ephemeral: true });
+      return;
+    }
+
+    const poll = anonPollState.getAnonPoll(guildId, pollId);
+    if (!poll) {
+      await interaction.reply({ content: 'This poll could not be found (it may have expired).', ephemeral: true });
+      return;
+    }
+
+    if (poll.messageId && interaction.message && poll.messageId !== interaction.message.id) {
+      await interaction.reply({ content: 'This poll interaction does not match the poll message.', ephemeral: true });
+      return;
+    }
+
+    if (action === 'participants') {
+      const kind = poll.kind === 'public' ? 'public' : 'anon';
+
+      const votes = poll.votes && typeof poll.votes === 'object' ? poll.votes : {};
+      const { uniqueVoters } = anonPollLib.getVoteCounts(poll);
+
+      if (kind !== 'public') {
+        await interaction.reply({
+          content: `This is an anonymous poll. Total voters so far: **${uniqueVoters}**.`,
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const options = Array.isArray(poll.options) ? poll.options : [];
+      const labelFor = idx => String.fromCharCode('A'.charCodeAt(0) + idx);
+      const mention = id => `<@${id}>`;
+
+      const truncateForSelectDescription = (text, max = 100) => {
+        const t = typeof text === 'string' ? text : '';
+        if (t.length <= max) return t;
+        return `${t.slice(0, Math.max(0, max - 1))}…`;
+      };
+
+      const shortVoterSummary = ids => {
+        if (!ids.length) return '(none)';
+        const parts = [];
+        let used = 0;
+        for (const id of ids) {
+          const m = mention(id);
+          const next = parts.length ? `, ${m}` : m;
+          if (used + next.length > 90) {
+            parts.push('…');
+            break;
+          }
+          parts.push(m);
+          used += next.length;
+        }
+        return parts.join(', ');
+      };
+
+      const voterIdsForOption = idx => Object.entries(votes)
+        .filter(([, v]) => v === idx)
+        .map(([userId]) => userId);
+
+      const menu = new StringSelectMenuBuilder()
+        .setCustomId(`polls/${pollId}/participants_menu`)
+        .setPlaceholder('Pick an option to view voters')
+        .addOptions([
+          {
+            label: 'All options',
+            value: 'all',
+            description: truncateForSelectDescription(`${uniqueVoters} total voter(s)`),
+          },
+          ...options.map((opt, i) => {
+            const ids = voterIdsForOption(i);
+            const label = `${labelFor(i)} (${ids.length})`;
+            const desc = `${ids.length} vote(s): ${shortVoterSummary(ids)}`;
+            return {
+              label: truncateForSelectDescription(label, 100),
+              value: `opt_${i}`,
+              description: truncateForSelectDescription(desc, 100),
+            };
+          }),
+        ]);
+
+      const row = new ActionRowBuilder().addComponents(menu);
+      await interaction.reply({
+        content: 'Select an option to see who voted for it:',
+        components: [row],
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (action === 'vote') {
+      if (poll.closed) {
+        await interaction.reply({ content: 'This poll is closed.', ephemeral: true });
+        return;
+      }
+
+      const idx = parts.length >= 4 ? Number(parts[3]) : NaN;
+      if (!Number.isFinite(idx)) {
+        await interaction.reply({ content: 'Invalid vote.', ephemeral: true });
+        return;
+      }
+
+      await interaction.deferUpdate();
+
+      const updated = anonPollState.recordAnonVote(guildId, pollId, interaction.user.id, idx);
+      if (!updated) {
+        return;
+      }
+
+      const embed = anonPollLib.buildAnonPollEmbed(updated);
+      const components = anonPollLib.buildAnonPollComponents(updated);
+      await interaction.message.edit({ embeds: [embed], components }).catch(() => null);
+      return;
+    }
+
+    await interaction.reply({ content: 'Unknown poll action.', ephemeral: true });
+  } catch (error) {
+    console.error('[anom-poll] Button handling failed:', error);
+    try {
+      if (interaction.deferred || interaction.replied) {
+        await interaction.followUp({ content: 'There was an error handling that poll interaction.', ephemeral: true });
+      } else {
+        await interaction.reply({ content: 'There was an error handling that poll interaction.', ephemeral: true });
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
+
 client.once(Events.ClientReady, c => {
   console.log(`✅ Logged in as ${c.user.tag}`);
 
   // Periodic sweep so we don't miss attendance if the bot restarts or if users were already in-channel.
   setInterval(async () => {
     try {
+      await sweepAnonPollTimers(client);
+
       const activeSessions = testSessionState.listActiveSessions();
-      if (!activeSessions.length) return;
+      if (activeSessions.length) {
+        for (const entry of activeSessions) {
+          const guildId = entry.guildId;
+          const session = entry.session;
+          if (!guildId || !session || !session.channelId) continue;
 
-      for (const entry of activeSessions) {
-        const guildId = entry.guildId;
-        const session = entry.session;
-        if (!guildId || !session || !session.channelId) continue;
+          const guild = client.guilds.cache.get(guildId);
+          if (!guild) continue;
 
-        const guild = client.guilds.cache.get(guildId);
-        if (!guild) continue;
+          let channel = guild.channels.cache.get(session.channelId);
+          if (!channel) {
+            channel = await guild.channels.fetch(session.channelId).catch(() => null);
+          }
 
-        let channel = guild.channels.cache.get(session.channelId);
-        if (!channel) {
-          channel = await guild.channels.fetch(session.channelId).catch(() => null);
+          if (!channel) continue;
+          if (channel.type !== ChannelType.GuildVoice && channel.type !== ChannelType.GuildStageVoice) {
+            continue;
+          }
+
+          const presentIds = channel.members ? Array.from(channel.members.keys()) : [];
+          testSessionState.syncAttendance(guildId, presentIds, Date.now());
         }
-
-        if (!channel) continue;
-        if (channel.type !== ChannelType.GuildVoice && channel.type !== ChannelType.GuildStageVoice) {
-          continue;
-        }
-
-        const presentIds = channel.members ? Array.from(channel.members.keys()) : [];
-        testSessionState.syncAttendance(guildId, presentIds, Date.now());
       }
     } catch (error) {
       console.error('[test-session] Attendance sweep failed:', error);
@@ -867,6 +1131,26 @@ client.on(Events.InteractionCreate, async interaction => {
     return;
   }
 
+  if (interaction.isStringSelectMenu()) {
+    if (isTicketBlacklisted(interaction)) {
+      try {
+        await interaction.reply({
+          content:
+            'You are not allowed to use this ticket system because you are on the ticket blacklist.',
+          ephemeral: true,
+        });
+      } catch (error) {
+        console.error('[blacklist] Failed to reply to blacklisted select-menu user:', error);
+      }
+      return;
+    }
+
+    if (typeof interaction.customId === 'string' && interaction.customId.startsWith('polls/')) {
+      await handleAnonPollSelectMenu(interaction);
+      return;
+    }
+  }
+
   if (interaction.isButton()) {
     if (isTicketBlacklisted(interaction)) {
       try {
@@ -878,6 +1162,11 @@ client.on(Events.InteractionCreate, async interaction => {
       } catch (error) {
         console.error('[blacklist] Failed to reply to blacklisted button user:', error);
       }
+      return;
+    }
+
+    if (typeof interaction.customId === 'string' && interaction.customId.startsWith('polls/')) {
+      await handleAnonPollButton(interaction);
       return;
     }
 
@@ -1077,7 +1366,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
           ticketEmbed
             .setTitle(`Rule Violation Report — ${ticketId}`)
-            .setColor(0x2ecc71)
+            .setColor(0x002ecc71)
             .addFields(
               { name: 'Ticket ID', value: ticketId, inline: true },
               { name: 'Reporter', value: stored.reporterTag, inline: false },
@@ -1098,7 +1387,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
           ticketEmbed
             .setTitle(`Ban Appeal — ${ticketId}`)
-            .setColor(0xf1c40f)
+            .setColor(0x00f1c40f)
             .addFields(
               { name: 'Ticket ID', value: ticketId, inline: true },
               { name: 'User', value: stored.reporterTag, inline: false },
@@ -1111,7 +1400,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
           ticketEmbed
             .setTitle(`Support Ticket — ${ticketId}`)
-            .setColor(0x3498db)
+            .setColor(0x003498db)
             .addFields(
               { name: 'Ticket ID', value: ticketId, inline: true },
               { name: 'User', value: stored.reporterTag, inline: false },
@@ -1122,7 +1411,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
           ticketEmbed
             .setTitle(`Ticket ${ticketId}`)
-            .setColor(0x2ecc71)
+            .setColor(0x002ecc71)
             .addFields(
               { name: 'Ticket ID', value: ticketId, inline: true },
               { name: 'Reporter', value: stored.reporterTag ?? 'Unknown', inline: false },
@@ -1360,7 +1649,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const embed = new EmbedBuilder()
           .setTitle(`Rule Violation Report — ${ticketId}`)
-          .setColor(0xff0000)
+          .setColor(0x00ff0000)
           .addFields(
             { name: 'Ticket ID', value: ticketId, inline: true },
             { name: 'Reporter', value: `${reporter.tag} (${reporter.id})`, inline: false },
@@ -1488,7 +1777,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const embed = new EmbedBuilder()
           .setTitle(`Ban Appeal — ${ticketId}`)
-          .setColor(0xf1c40f)
+          .setColor(0x00f1c40f)
           .addFields(
             { name: 'Ticket ID', value: ticketId, inline: true },
             { name: 'User', value: `${reporter.tag} (${reporter.id})`, inline: false },
@@ -1595,7 +1884,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const embed = new EmbedBuilder()
           .setTitle(`Support Ticket — ${ticketId}`)
-          .setColor(0x3498db)
+          .setColor(0x003498db)
           .addFields(
             { name: 'Ticket ID', value: ticketId, inline: true },
             { name: 'User', value: `${reporter.tag} (${reporter.id})`, inline: false },
@@ -1707,7 +1996,7 @@ client.on(Events.InteractionCreate, async interaction => {
           if (logChannel && logChannel.isTextBased()) {
             const embed = new EmbedBuilder()
               .setTitle('Ticket Decision')
-              .setColor(0xff0000)
+              .setColor(0x00ff0000)
               .addFields(
                 { name: 'Ticket ID', value: ticketId, inline: true },
                 { name: 'Decision', value: 'Denied', inline: true },

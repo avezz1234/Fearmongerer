@@ -30,7 +30,7 @@ async function dmTicketPresenter(client, stored, { decision, reason }) {
 
     const normalizedDecision = decision === 'Denied' ? 'Denied' : 'Accepted';
     const status = normalizedDecision === 'Denied' ? 'DENIED' : 'ACCEPTED';
-    const color = normalizedDecision === 'Accepted' ? 0x2ecc71 : 0xe74c3c;
+    const color = normalizedDecision === 'Accepted' ? 0x002ecc71 : 0x00e74c3c;
 
     if (type === 'report') {
       const rulebreaker = stored.rulebreaker || 'Unknown';

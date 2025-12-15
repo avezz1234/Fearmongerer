@@ -15,7 +15,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle('Pong! Network Stats')
-      .setColor(0x00ff99)
+      .setColor(0x0000ff99)
       .addFields(
         { name: 'WebSocket Ping', value: `${wsPing} ms`, inline: true },
         { name: 'API Latency', value: `${apiLatency} ms`, inline: true },

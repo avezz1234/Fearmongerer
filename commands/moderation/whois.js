@@ -226,7 +226,10 @@ module.exports = {
     const notes = getNotesForMember(guildId, user.id);
     const notesCount = notes.length;
 
-    const noteLines = notes.slice(-10).map((note, index) => {
+    const noteLines = notes
+      .slice(-10)
+      .reverse()
+      .map((note, index) => {
       const createdTs = note.createdAt ? Date.parse(note.createdAt) : NaN;
       const createdUnix = Number.isFinite(createdTs) ? Math.floor(createdTs / 1000) : null;
       const when = createdUnix ? `<t:${createdUnix}:F>` : 'unknown time';
@@ -290,7 +293,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(`Info: ${user.tag}`)
-      .setColor(0x5865f2)
+      .setColor(0x005865f2)
       .setThumbnail(user.displayAvatarURL({ dynamic: true }))
       .addFields(
         { name: 'User ID', value: user.id, inline: false },
@@ -379,6 +382,16 @@ module.exports = {
     if (banIdsField) {
       embed.addFields(banIdsField);
     }
+
+    let notesValue = noteLines.length ? noteLines.join('\n') : 'None';
+    if (notesCount > 10 && noteLines.length) {
+      notesValue += `\n… and ${notesCount - 10} more`;
+    }
+    if (notesValue.length > 1024) {
+      notesValue = `${notesValue.slice(0, 1010)}…`;
+    }
+
+    embed.addFields({ name: 'Notes (most recent first)', value: notesValue, inline: false });
 
     await interaction.reply({ embeds: [embed], ephemeral: true });
   },

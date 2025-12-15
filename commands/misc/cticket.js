@@ -36,7 +36,7 @@ module.exports = {
       }!`;
 
       const embed = new EmbedBuilder()
-        .setColor(0x3498db)
+        .setColor(0x003498db)
         .setDescription(description)
         .setTimestamp(new Date());
 

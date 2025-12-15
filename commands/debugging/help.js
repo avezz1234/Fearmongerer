@@ -143,7 +143,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle('Bot Help')
-      .setColor(0x5865f2)
+      .setColor(0x005865f2)
       .setDescription('Summary of all available slash commands and how to use them.');
 
     for (const section of HELP_SECTIONS) {

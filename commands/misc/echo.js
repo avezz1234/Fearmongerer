@@ -61,7 +61,7 @@ module.exports = {
     if (asEmbed) {
       const embed = new EmbedBuilder()
         .setDescription(text || '(no text content)')
-        .setColor(0x5865f2);
+        .setColor(0x005865f2);
 
       if (attachment && attachment.contentType && attachment.name) {
         const contentType = attachment.contentType;

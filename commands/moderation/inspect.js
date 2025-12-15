@@ -92,13 +92,13 @@ module.exports = {
     const undoneTs = undoneAtIso ? Date.parse(undoneAtIso) : NaN;
     const undoneUnix = Number.isFinite(undoneTs) ? Math.floor(undoneTs / 1000) : null;
 
-    let color = 0x2b2d31;
-    if (type === 'warn') color = 0xffcc00;
-    else if (type === 'kick') color = 0xe67e22;
-    else if (type === 'ban') color = 0xe74c3c;
+    let color = 0x002b2d31;
+    if (type === 'warn') color = 0x00ffcc00;
+    else if (type === 'kick') color = 0x00e67e22;
+    else if (type === 'ban') color = 0x00e74c3c;
 
     if (undone) {
-      color = 0x95a5a6;
+      color = 0x0095a5a6;
     }
 
     const targetLabel = targetId

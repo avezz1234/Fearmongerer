@@ -83,7 +83,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle('Your Tickets')
-      .setColor(0x2b2d31)
+      .setColor(0x002b2d31)
       .setDescription(description)
       .addFields({
         name: 'Phase legend',

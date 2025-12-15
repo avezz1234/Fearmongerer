@@ -26,7 +26,7 @@ module.exports = {
           '- **Other Support**: Any other issues not covered above.',
       )
       .setFooter({ text: 'Please read the rules before submitting a ticket!' })
-      .setColor(0x3498db);
+      .setColor(0x003498db);
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()

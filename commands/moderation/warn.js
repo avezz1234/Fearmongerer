@@ -145,7 +145,7 @@ module.exports = {
       try {
         const dmEmbed = new EmbedBuilder()
           .setTitle(`You have been warned in ${interaction.guild.name}`)
-          .setColor(0xffcc00)
+          .setColor(0x00ffcc00)
           .setDescription(reason)
           .addFields(
             { name: 'Active warnings (this server)', value: String(activeCount), inline: true },

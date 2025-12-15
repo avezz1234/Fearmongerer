@@ -76,7 +76,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle(`Roles in ${guild.name}`)
-      .setColor(0x5865f2)
+      .setColor(0x005865f2)
       .setDescription('Each role is listed with a summary of key permissions (not every single Discord permission bit).')
       .setTimestamp();
 

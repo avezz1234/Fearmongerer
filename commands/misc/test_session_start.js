@@ -6,6 +6,7 @@ const {
 } = require('discord.js');
 
 const testSessionState = require('../../test_session_state');
+const { TEST_SESSION_TIMEZONE } = require('../../constants');
 
 const TESTER_ROLE_ID = '1447218798112538654';
 
@@ -106,24 +107,6 @@ function computeNextStartUnixInTimeZone(spec, nowMs, timeZone) {
   }
 
   return Math.floor(candidateUtcMs / 1000);
-}
-
-function formatZonedDateTime(utcMs, timeZone) {
-  try {
-    const dtf = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      year: 'numeric',
-      month: 'short',
-      day: '2-digit',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-      timeZoneName: 'short',
-    });
-    return dtf.format(new Date(utcMs));
-  } catch {
-    return null;
-  }
 }
 
 function parseStartTimeSpec(raw) {
@@ -230,12 +213,6 @@ module.exports = {
         .setName('duration')
         .setDescription('Example: 90m, 2h, 1h30m')
         .setRequired(true),
-    )
-    .addStringOption(option =>
-      option
-        .setName('timezone')
-        .setDescription('IANA timezone to interpret start_time in (example: America/New_York, UTC)')
-        .setRequired(true),
     ),
   async execute(interaction) {
     if (!interaction.guild) {
@@ -247,12 +224,11 @@ module.exports = {
     const sessionChannel = interaction.options.getChannel('channel', true);
     const startTimeRaw = interaction.options.getString('start_time', true);
     const durationRaw = interaction.options.getString('duration', true);
-    const timeZoneRaw = interaction.options.getString('timezone', true);
 
-    const timeZone = String(timeZoneRaw || '').trim();
+    const timeZone = String(TEST_SESSION_TIMEZONE || '').trim();
     if (!isValidIanaTimeZone(timeZone)) {
       await interaction.reply({
-        content: 'Bad `timezone`. Use an IANA timezone like `America/New_York` (or `UTC`).',
+        content: 'Misconfigured test session timezone. Set `TEST_SESSION_TIMEZONE` in constants.js to a valid IANA timezone (example: `America/New_York`).',
         ephemeral: true,
       });
       return;
@@ -268,11 +244,29 @@ module.exports = {
     }
 
     const startTimeText = startTimeSpec.displayText;
-    const startAtUnix = computeNextStartUnixInTimeZone(startTimeSpec, Date.now(), timeZone);
-    const startTimeZonedText = startAtUnix ? formatZonedDateTime(startAtUnix * 1000, timeZone) : null;
-    const startTimeValue = startAtUnix
-      ? `${startTimeZonedText || startTimeText}\n<t:${startAtUnix}:F>\n(<t:${startAtUnix}:R>)`
-      : startTimeText;
+
+    let startAtUnix = null;
+    try {
+      startAtUnix = computeNextStartUnixInTimeZone(startTimeSpec, Date.now(), timeZone);
+    } catch (error) {
+      console.error('[test-session] Failed to compute start time in configured timezone; falling back to host-local time:', error);
+      startAtUnix = null;
+    }
+
+    // Fallback path (should never throw) so the command cannot crash the bot.
+    if (!startAtUnix) {
+      startAtUnix = computeNextStartUnix(startTimeSpec, Date.now());
+    }
+
+    if (!startAtUnix) {
+      await interaction.reply({
+        content: 'Could not compute a planned start timestamp from `start_time`. Please retry.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const startTimeValue = `<t:${startAtUnix}:F>\n(<t:${startAtUnix}:R>)`;
 
     const durationMinutes = parseDurationMinutes(durationRaw);
     if (!durationMinutes) {
@@ -295,12 +289,11 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle('Test Session')
-      .setColor(0x2ecc71)
+      .setColor(0x002ecc71)
       .setDescription('A test session has been scheduled. Please join the channel at the start time.')
       .addFields(
         { name: 'Start time', value: startTimeValue, inline: true },
         { name: 'Duration', value: formatDuration(durationMinutes), inline: true },
-        { name: 'Timezone', value: timeZone, inline: true },
         { name: 'Channel', value: sessionChannel.toString(), inline: false },
       )
       .setTimestamp(new Date());
@@ -321,7 +314,6 @@ module.exports = {
       channelId: sessionChannel.id,
       startTimeText,
       startAtUnix,
-      timeZone,
       durationMinutes,
       announcedBy: interaction.user.id,
       announcementChannelId: announceChannel.id,

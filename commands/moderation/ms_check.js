@@ -262,7 +262,7 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setTitle('Moderator Scorecard')
-        .setColor(0x2b2d31)
+        .setColor(0x002b2d31)
         .setDescription(`Scorecard for **${label}**\nTime window: **${timeLabel}**`)
         .addFields(
           {

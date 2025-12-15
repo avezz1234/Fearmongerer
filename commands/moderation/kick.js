@@ -100,7 +100,7 @@ module.exports = {
       try {
         const embed = new EmbedBuilder()
           .setTitle(`You have been kicked from ${interaction.guild.name}`)
-          .setColor(0xffa500)
+          .setColor(0x00ffa500)
           .setDescription(reason)
           .addFields({ name: 'Moderation ID', value: moderationId, inline: false })
           .setTimestamp();

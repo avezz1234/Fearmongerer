@@ -78,7 +78,6 @@ function startSession({
   channelId,
   startTimeText,
   startAtUnix,
-  timeZone,
   durationMinutes,
   announcedBy,
   announcementChannelId,
@@ -101,7 +100,6 @@ function startSession({
     channelId,
     startTimeText: typeof startTimeText === 'string' ? startTimeText.trim() : '',
     startAtUnix: Number.isFinite(startAtUnix) ? Math.floor(startAtUnix) : null,
-    timeZone: typeof timeZone === 'string' ? timeZone.trim() : null,
     durationMinutes: Number.isFinite(durationMinutes) ? durationMinutes : null,
     announcedAt: nowIso,
     announcedBy: announcedBy || null,
@@ -273,6 +271,39 @@ function syncAttendance(guildId, presentUserIds, nowMs) {
   return session;
 }
 
+function markAttendance(guildId, userId, totalSeconds, nowMs) {
+  if (!guildId || !userId) return null;
+
+  const seconds = Number.isFinite(totalSeconds) ? Math.max(1, Math.floor(totalSeconds)) : 60;
+
+  const store = loadStore();
+  const bucket = getGuildBucket(store, guildId);
+  const session = bucket.active;
+
+  if (!session || typeof session !== 'object') {
+    return null;
+  }
+
+  if (!session.participants || typeof session.participants !== 'object') {
+    session.participants = {};
+  }
+
+  const nowIso = new Date(nowMs).toISOString();
+  const existing = session.participants[userId];
+  const next = {
+    userId,
+    firstJoinedAt: existing?.firstJoinedAt || nowIso,
+    lastJoinedAt: nowIso,
+    currentJoinAt: null,
+    totalSeconds: (typeof existing?.totalSeconds === 'number' ? existing.totalSeconds : 0) + seconds,
+  };
+
+  session.participants[userId] = next;
+  bucket.active = session;
+  saveStore(store);
+  return session;
+}
+
 module.exports = {
   getActiveSession,
   listActiveSessions,
@@ -281,4 +312,5 @@ module.exports = {
   recordLeave,
   endSession,
   syncAttendance,
+  markAttendance,
 };

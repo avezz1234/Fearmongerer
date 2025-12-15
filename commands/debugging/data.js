@@ -71,7 +71,7 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setTitle('Data Stored')
-        .setColor(0x2b2d31)
+        .setColor(0x002b2d31)
         .addFields(
           { name: 'Key', value: key, inline: true },
           { name: 'Value', value: value, inline: false },
@@ -99,7 +99,7 @@ module.exports = {
 
         const embed = new EmbedBuilder()
           .setTitle('Stored Data')
-          .setColor(0x2b2d31)
+          .setColor(0x002b2d31)
           .addFields(
             { name: 'Key', value: key, inline: true },
             { name: 'Value', value: record.value ?? '', inline: false },
@@ -133,7 +133,7 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setTitle('All Stored Data')
-        .setColor(0x2b2d31)
+        .setColor(0x002b2d31)
         .setDescription(json);
 
       await interaction.reply({
