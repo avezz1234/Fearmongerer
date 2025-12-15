@@ -1875,6 +1875,15 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const reporter = interaction.user;
 
+        if (!logChannel || !logChannel.isTextBased()) {
+          await interaction.reply({
+            content:
+              'Ticket system is not configured correctly right now (missing report ticket log channel). Please contact staff.',
+            ephemeral: true,
+          });
+          return;
+        }
+
         if (isDuplicateTicketSubmission({ guildId: guild.id, reporterId: reporter.id, type: 'report', nowMs: Date.now() })) {
           await interaction.reply({ content: 'Already submitted. Give it a second and check your ticket ID.', ephemeral: true });
           return;
@@ -2021,6 +2030,15 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const reporter = interaction.user;
 
+        if (!logChannel || !logChannel.isTextBased()) {
+          await interaction.reply({
+            content:
+              'Ticket system is not configured correctly right now (missing appeal ticket log channel). Please contact staff.',
+            ephemeral: true,
+          });
+          return;
+        }
+
         if (isDuplicateTicketSubmission({ guildId: guild.id, reporterId: reporter.id, type: 'appeal', nowMs: Date.now() })) {
           await interaction.reply({ content: 'Already submitted. Give it a second and check your ticket ID.', ephemeral: true });
           return;
@@ -2150,7 +2168,25 @@ client.on(Events.InteractionCreate, async interaction => {
         }
 
         const reporter = interaction.user;
+
+        if (!logChannel || !logChannel.isTextBased()) {
+          await interaction.reply({
+            content:
+              'Ticket system is not configured correctly right now (missing other-support ticket log channel). Please contact staff.',
+            ephemeral: true,
+          });
+          return;
+        }
+
         const ticketId = generateTicketId();
+
+        let assigneeId = null;
+        try {
+          assigneeId = await pickNextTicketAssigneeId(guild);
+        } catch (error) {
+          console.error('[tickets] Failed to pick ticket assignee:', error);
+          assigneeId = null;
+        }
 
         const embed = new EmbedBuilder()
           .setTitle(`Support Ticket — ${ticketId}`)
