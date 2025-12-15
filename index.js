@@ -29,6 +29,7 @@ const WELCOME_DEDUPE_WINDOW_MS = 120_000;
 const recentTicketSubmissions = new Map();
 const TICKET_SUBMISSION_DEDUPE_MS = 15_000;
 const { ticketState } = require('./ticket_state');
+const { pickNextAssignee } = require('./ticket_assignment_state');
 const { getAfk, clearAfk } = require('./afk_state');
 const { getNoPingRule } = require('./noping_state');
 const { getAutomodRules, getReverseAutomodRules } = require('./automod_state');
@@ -130,6 +131,7 @@ const REPORT_TICKET_CHANNEL_ID = '1447699511802724354';
 const APPEAL_TICKET_CHANNEL_ID = '1447699541309784084';
 const OTHER_TICKET_CHANNEL_ID = '1447699570267131977';
 const TICKET_DECISION_LOG_CHANNEL_ID = '1447705274243616809';
+const TICKET_ASSIGN_ROLE_ID = '1449793668339994737';
 const TICKET_BLACKLIST_ROLE_NAME = 'Ticket Blacklist';
 const WELCOME_CHANNEL_ID = '1434961604197355695';
 const DEFAULT_WELCOME_TEMPLATE =
@@ -520,6 +522,27 @@ async function logTicketDecision(guild, { ticketId, decision, staffUser, reasonF
 
 function generateTicketId() {
   return Math.random().toString(16).slice(2, 8).toUpperCase();
+}
+
+async function pickNextTicketAssigneeId(guild) {
+  if (!guild) return null;
+
+  let role = guild.roles.cache.get(TICKET_ASSIGN_ROLE_ID);
+  if (!role) {
+    role = await guild.roles.fetch(TICKET_ASSIGN_ROLE_ID).catch(() => null);
+  }
+
+  if (!role) {
+    return null;
+  }
+
+  await guild.members.fetch().catch(() => null);
+
+  const candidates = Array.from(role.members.values())
+    .filter(member => member && member.user && !member.user.bot)
+    .map(member => member.id);
+
+  return pickNextAssignee({ guildId: guild.id, candidates });
 }
 
 function isDuplicateTicketSubmission({ guildId, reporterId, type, nowMs }) {
@@ -1858,6 +1881,14 @@ client.on(Events.InteractionCreate, async interaction => {
         }
         const ticketId = generateTicketId();
 
+        let assigneeId = null;
+        try {
+          assigneeId = await pickNextTicketAssigneeId(guild);
+        } catch (error) {
+          console.error('[tickets] Failed to pick ticket assignee:', error);
+          assigneeId = null;
+        }
+
         const embed = new EmbedBuilder()
           .setTitle(`Rule Violation Report — ${ticketId}`)
           .setColor(0x00ff0000)
@@ -1869,6 +1900,10 @@ client.on(Events.InteractionCreate, async interaction => {
             { name: 'Details', value: reason, inline: false },
           )
           .setTimestamp();
+
+        if (assigneeId) {
+          embed.addFields({ name: 'Assigned', value: `<@${assigneeId}>`, inline: false });
+        }
 
         if (notes) {
           embed.addFields({ name: 'Additional information', value: notes, inline: false });
@@ -1891,7 +1926,12 @@ client.on(Events.InteractionCreate, async interaction => {
           ),
         ];
 
-        const sentMessage = await logChannel.send({ embeds: [embed], components });
+        const sentMessage = await logChannel.send({
+          content: assigneeId ? `<@${assigneeId}>` : undefined,
+          embeds: [embed],
+          components,
+          allowedMentions: assigneeId ? { parse: [], users: [assigneeId] } : { parse: [] },
+        });
 
         ticketState.set(ticketId, {
           type: 'report',
@@ -1906,6 +1946,7 @@ client.on(Events.InteractionCreate, async interaction => {
           evidence,
           reason,
           notes,
+          assignedToId: assigneeId,
         });
 
         await interaction.reply({
@@ -1986,6 +2027,14 @@ client.on(Events.InteractionCreate, async interaction => {
         }
         const ticketId = generateTicketId();
 
+        let assigneeId = null;
+        try {
+          assigneeId = await pickNextTicketAssigneeId(guild);
+        } catch (error) {
+          console.error('[tickets] Failed to pick ticket assignee:', error);
+          assigneeId = null;
+        }
+
         const embed = new EmbedBuilder()
           .setTitle(`Ban Appeal — ${ticketId}`)
           .setColor(0x00f1c40f)
@@ -1998,6 +2047,10 @@ client.on(Events.InteractionCreate, async interaction => {
             { name: 'Reason for appeal', value: whyReturn, inline: false },
           )
           .setTimestamp();
+
+        if (assigneeId) {
+          embed.addFields({ name: 'Assigned', value: `<@${assigneeId}>`, inline: false });
+        }
 
         const components = [
           new ActionRowBuilder().addComponents(
@@ -2016,7 +2069,12 @@ client.on(Events.InteractionCreate, async interaction => {
           ),
         ];
 
-        const sentMessage = await logChannel.send({ embeds: [embed], components });
+        const sentMessage = await logChannel.send({
+          content: assigneeId ? `<@${assigneeId}>` : undefined,
+          embeds: [embed],
+          components,
+          allowedMentions: assigneeId ? { parse: [], users: [assigneeId] } : { parse: [] },
+        });
 
         ticketState.set(ticketId, {
           type: 'appeal',
@@ -2031,6 +2089,7 @@ client.on(Events.InteractionCreate, async interaction => {
           whenBanned,
           whyBanned,
           whyReturn,
+          assignedToId: assigneeId,
         });
 
         await interaction.reply({
@@ -2103,6 +2162,10 @@ client.on(Events.InteractionCreate, async interaction => {
           )
           .setTimestamp();
 
+        if (assigneeId) {
+          embed.addFields({ name: 'Assigned', value: `<@${assigneeId}>`, inline: false });
+        }
+
         const components = [
           new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -2120,7 +2183,12 @@ client.on(Events.InteractionCreate, async interaction => {
           ),
         ];
 
-        const sentMessage = await logChannel.send({ embeds: [embed], components });
+        const sentMessage = await logChannel.send({
+          content: assigneeId ? `<@${assigneeId}>` : undefined,
+          embeds: [embed],
+          components,
+          allowedMentions: assigneeId ? { parse: [], users: [assigneeId] } : { parse: [] },
+        });
 
         ticketState.set(ticketId, {
           type: 'other',
@@ -2128,6 +2196,7 @@ client.on(Events.InteractionCreate, async interaction => {
           messageId: sentMessage.id,
           channelId: sentMessage.channelId,
           guildId: guild.id,
+          assignedToId: assigneeId,
           reporterTag: `${reporter.tag} (${reporter.id})`,
           description,
         });

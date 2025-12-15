@@ -17,7 +17,7 @@ module.exports = {
 
     await interaction.reply({
       content: "Yes, that's true!",
-      ephemeral: true,
+      ephemeral: false,
     });
   },
 };
