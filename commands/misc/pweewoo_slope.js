@@ -16,6 +16,27 @@ function labelForOptionIndex(idx) {
   return String.fromCharCode('A'.charCodeAt(0) + idx);
 }
 
+function normalizePollId(value) {
+  return String(value || '').trim().toLowerCase().replaceAll('-', '');
+}
+
+function resolveAnonPollByIdOrPrefix(guildId, input) {
+  const needle = normalizePollId(input);
+  if (!needle) return null;
+
+  const polls = anonPollState.listAnonPolls(guildId);
+  const matches = polls.filter(p => {
+    const hay = normalizePollId(p?.id);
+    return hay && hay.startsWith(needle);
+  });
+
+  if (matches.length !== 1) {
+    return { poll: null, ambiguous: matches.length > 1 };
+  }
+
+  return { poll: matches[0], ambiguous: false };
+}
+
 async function refreshAnonPollMessage(client, poll) {
   try {
     if (!poll || !poll.guildId || !poll.channelId || !poll.messageId) return;
@@ -72,13 +93,19 @@ module.exports = {
     }
 
     const guildId = interaction.guild.id;
-    const pollId = interaction.options.getString('poll_id', true).trim();
+    const pollIdInput = interaction.options.getString('poll_id', true).trim();
 
-    const poll = anonPollState.getAnonPoll(guildId, pollId);
-    if (!poll) {
-      await interaction.reply({ content: 'I could not find an anonymous poll with that ID in this server.', ephemeral: true });
+    const resolved = resolveAnonPollByIdOrPrefix(guildId, pollIdInput);
+    if (!resolved || !resolved.poll) {
+      const msg = resolved && resolved.ambiguous
+        ? 'That poll ID prefix matches multiple polls. Please paste a longer prefix or the full UUID.'
+        : 'I could not find an anonymous poll with that ID in this server. (Tip: you can paste the 8-char Poll ID from the embed footer.)';
+      await interaction.reply({ content: msg, ephemeral: true });
       return;
     }
+
+    const poll = resolved.poll;
+    const pollId = poll.id;
 
     if (poll.kind === 'public') {
       await interaction.reply({ content: 'This command only supports anonymous polls (not public polls).', ephemeral: true });
@@ -116,12 +143,6 @@ module.exports = {
     const intervalMs = Math.max(500, Math.floor((durationSeconds * 1000) / amount));
     let remaining = amount;
     let lastRefreshAt = 0;
-
-    pweewooJobs.startOrReplaceJob(guildId, pollId, {
-      cancel: () => {
-        // interval cleared below
-      },
-    });
 
     const keyPrefix = 'pweewoo';
 
