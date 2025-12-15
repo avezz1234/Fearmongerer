@@ -5,6 +5,8 @@ const {
 
 const tsState = require('../../ts_state');
 
+const TESTER_ROLE_ID = '1447218798112538654';
+
 function buildLeaderboardLines(rows, maxChars) {
   const lines = [];
   let used = 0;
@@ -25,7 +27,13 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('ts_summary')
     .setDescription('Show TS leaderboard for all tracked testers.')
-    .setDMPermission(false),
+    .setDMPermission(false)
+    .addBooleanOption(option =>
+      option
+        .setName('ping')
+        .setDescription('Ping testers')
+        .setRequired(false),
+    ),
 
   async execute(interaction) {
     if (!interaction.guild) {
@@ -35,6 +43,8 @@ module.exports = {
 
     const guildId = interaction.guild.id;
     const testers = tsState.listTesters(guildId);
+
+    const ping = interaction.options.getBoolean('ping', false) ?? false;
 
     if (!testers.length) {
       await interaction.reply({
@@ -64,6 +74,11 @@ module.exports = {
       .setFooter({ text: lines.length < rows.length ? `Showing ${lines.length} of ${rows.length}` : `${rows.length} total` })
       .setTimestamp(new Date());
 
-    await interaction.reply({ embeds: [embed] });
+    const content = ping ? `<@&${TESTER_ROLE_ID}>` : undefined;
+    const allowedMentions = ping
+      ? { parse: [], roles: [TESTER_ROLE_ID], users: [] }
+      : { parse: [] };
+
+    await interaction.reply({ content, embeds: [embed], allowedMentions });
   },
 };
