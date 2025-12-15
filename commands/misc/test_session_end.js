@@ -5,8 +5,10 @@ const {
 } = require('discord.js');
 
 const testSessionState = require('../../test_session_state');
+const tsState = require('../../ts_state');
 
 const TESTER_ROLE_ID = '1447218798112538654';
+const TS_AWARD_THRESHOLD_SECONDS = 5 * 60;
 
 function formatDurationFromSeconds(totalSeconds) {
   const seconds = Number.isFinite(totalSeconds) ? Math.max(0, Math.floor(totalSeconds)) : 0;
@@ -84,6 +86,22 @@ module.exports = {
 
     present.sort((a, b) => b.totalSeconds - a.totalSeconds);
 
+    const sessionId = ended.id || null;
+    const awarded = [];
+
+    if (sessionId) {
+      for (const item of present) {
+        if (!item || !item.member) continue;
+        if (typeof item.totalSeconds !== 'number') continue;
+        if (item.totalSeconds < TS_AWARD_THRESHOLD_SECONDS) continue;
+
+        const res = tsState.awardForSession(guild.id, item.member.id, sessionId, 1);
+        if (res && res.awarded) {
+          awarded.push(item.member);
+        }
+      }
+    }
+
     const presentLines = present.slice(0, 25).map(item => {
       const dur = formatDurationFromSeconds(item.totalSeconds);
       return `• ${item.member.toString()} — ${dur}`;
@@ -114,6 +132,7 @@ module.exports = {
         { name: 'Start time (planned)', value: plannedStartUnix ? `<t:${plannedStartUnix}:F>` : (ended.startTimeText || 'Unknown'), inline: true },
         { name: 'Announced at', value: startedUnix ? `<t:${startedUnix}:F>` : 'Unknown', inline: true },
         { name: 'Ended at', value: endedUnix ? `<t:${endedUnix}:F>` : 'Unknown', inline: true },
+        { name: 'TS awarded (>= 5m)', value: awarded.length ? String(awarded.length) : '0', inline: true },
         { name: `Present (${present.length})`, value: presentLines.length ? formatMemberList(presentLines) : 'None', inline: false },
         { name: `Absent (${absent.length})`, value: absentLines.length ? formatMemberList(absentLines) : 'None', inline: false },
       )

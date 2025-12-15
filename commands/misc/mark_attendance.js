@@ -4,6 +4,7 @@ const {
 } = require('discord.js');
 
 const testSessionState = require('../../test_session_state');
+const tsState = require('../../ts_state');
 
 function clampInt(value, { min, max }) {
   const n = Number(value);
@@ -68,8 +69,15 @@ module.exports = {
       return;
     }
 
+    const sessionId = typeof active.id === 'string' && active.id.trim().length ? active.id.trim() : null;
+    if (sessionId) {
+      tsState.awardForSession(guild.id, user.id, sessionId, 1);
+    } else {
+      tsState.addTs(guild.id, user.id, 1, { min: 0 });
+    }
+
     await interaction.reply({
-      content: `✅ Marked ${user} present for **${minutes}m** in active test session **${active.id || 'unknown'}**.`,
+      content: `✅ Marked ${user} present for **${minutes}m** in active test session **${active.id || 'unknown'}**. Awarded **+1 TS**.`,
       ephemeral: true,
     });
   },
