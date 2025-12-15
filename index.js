@@ -7,6 +7,7 @@ const {
   AuditLogEvent,
   Events,
   GatewayIntentBits,
+  AttachmentBuilder,
   EmbedBuilder,
   Partials,
   ModalBuilder,
@@ -15,6 +16,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  PermissionFlagsBits,
   StringSelectMenuBuilder,
   ChannelType,
 } = require('discord.js');
@@ -142,6 +144,100 @@ const POLLS_FILE = path.join(DATA_DIR, 'polls.json');
 const CHANNELS_FILE = path.join(DATA_DIR, 'channels.json');
 const SERVERS_FILE = path.join(DATA_DIR, 'servers.json');
 const MOD_FILE = path.join(DATA_DIR, 'moderations.json');
+
+function safeReadJsonFromDataFile(filename) {
+  try {
+    const fullPath = path.join(DATA_DIR, filename);
+    if (!fs.existsSync(fullPath)) return null;
+    const raw = fs.readFileSync(fullPath, 'utf8');
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (error) {
+    console.error(`[config-view] Failed to read ${filename}:`, error);
+    return null;
+  }
+}
+
+function truncateText(text, maxLen) {
+  const raw = typeof text === 'string' ? text : '';
+  if (raw.length <= maxLen) return raw;
+  return `${raw.slice(0, Math.max(0, maxLen - 1))}…`;
+}
+
+function censorTokenForConfigView(token) {
+  const raw = typeof token === 'string' ? token : '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('<') && trimmed.endsWith('>')) return trimmed;
+  if (trimmed.startsWith(':') && trimmed.endsWith(':') && trimmed.length >= 3) return trimmed;
+
+  const letters = trimmed.replaceAll(/[^a-zA-Z0-9]/g, '');
+  if (!letters) return '▇';
+  const first = letters.slice(0, 1);
+  const maskLen = Math.min(8, Math.max(3, letters.length - 1));
+  return `${first}${'▇'.repeat(maskLen)}`;
+}
+
+function censorPhraseForConfigView(phrase) {
+  const raw = typeof phrase === 'string' ? phrase.trim() : '';
+  if (!raw) return '(empty)';
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      const pathPart = url.pathname && url.pathname !== '/' ? url.pathname : '';
+      const shown = `${url.origin}${pathPart}`;
+      return truncateText(`[link] ${shown}`, 80);
+    } catch {
+      return '[link]';
+    }
+  }
+
+  const parts = raw.split(/\s+/g).filter(Boolean);
+  const censored = parts.map(censorTokenForConfigView).filter(Boolean).join(' ');
+  return truncateText(censored || '[censored]', 120);
+}
+
+function getGuildBucket(store, guildId) {
+  if (!store || typeof store !== 'object' || !guildId) return null;
+  const bucket = store[guildId];
+  return bucket && typeof bucket === 'object' ? bucket : null;
+}
+
+function formatJsonForAttachment(value) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return null;
+  }
+}
+
+async function replyConfigDetails(interaction, title, payload, { asJson = true } = {}) {
+  const raw = asJson ? formatJsonForAttachment(payload) : String(payload ?? '');
+  if (!raw) {
+    await interaction.reply({ content: 'No data found for that section.', ephemeral: true });
+    return;
+  }
+
+  const directLimit = 3500;
+  if (raw.length <= directLimit) {
+    const embed = new EmbedBuilder()
+      .setTitle(title)
+      .setColor(0x002b2d31)
+      .setDescription(`\`\`\`json\n${raw}\n\`\`\``);
+    await interaction.reply({ embeds: [embed], ephemeral: true });
+    return;
+  }
+
+  const attachment = new AttachmentBuilder(Buffer.from(raw, 'utf8'), {
+    name: 'config-details.json',
+  });
+  const embed = new EmbedBuilder()
+    .setTitle(title)
+    .setColor(0x002b2d31)
+    .setDescription('Details attached as a JSON file (ephemeral).');
+  await interaction.reply({ embeds: [embed], files: [attachment], ephemeral: true });
+}
 
 if (!BOT_TOKEN || BOT_TOKEN === 'YOUR_BOT_TOKEN_HERE') {
   console.error('Please set BOT_TOKEN in constants.js before starting the bot.');
@@ -1167,6 +1263,114 @@ client.on(Events.InteractionCreate, async interaction => {
 
     if (typeof interaction.customId === 'string' && interaction.customId.startsWith('polls/')) {
       await handleAnonPollButton(interaction);
+      return;
+    }
+
+    if (typeof interaction.customId === 'string' && interaction.customId.startsWith('cfg_view:')) {
+      const guildId = interaction.guildId;
+      if (!guildId) {
+        await interaction.reply({ content: 'Config details are only available inside a server.', ephemeral: true });
+        return;
+      }
+
+      if (!interaction.memberPermissions || !interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
+        await interaction.reply({ content: 'You need **Manage Server** to view config details.', ephemeral: true });
+        return;
+      }
+
+      const section = interaction.customId.slice('cfg_view:'.length);
+
+      if (section === 'channels') {
+        const channels = safeReadJsonFromDataFile('channels.json') || {};
+        await replyConfigDetails(interaction, 'Channel routing (channels.json)', channels);
+        return;
+      }
+
+      if (section === 'welcome') {
+        const servers = safeReadJsonFromDataFile('servers.json') || {};
+        const bucket = getGuildBucket(servers, guildId) || {};
+        await replyConfigDetails(interaction, 'Welcome configuration (servers.json)', bucket);
+        return;
+      }
+
+      if (section === 'automod' || section === 'reverse_automod') {
+        const store = safeReadJsonFromDataFile('automod.json') || {};
+        const bucket = getGuildBucket(store, guildId) || {};
+        const key = section === 'reverse_automod' ? 'reverseWords' : 'words';
+        const entries = Array.isArray(bucket[key]) ? bucket[key] : [];
+
+        const safeEntries = entries.map((e) => {
+          if (!e || typeof e !== 'object') return null;
+          return {
+            ...e,
+            phrase: censorPhraseForConfigView(e.phrase),
+          };
+        }).filter(Boolean);
+
+        const title = section === 'reverse_automod'
+          ? 'Reverse Automod entries (censored)'
+          : 'Automod blocked entries (censored)';
+        await replyConfigDetails(interaction, title, safeEntries);
+        return;
+      }
+
+      if (section === 'afk') {
+        const store = safeReadJsonFromDataFile('afk.json') || {};
+        const bucket = getGuildBucket(store, guildId) || {};
+        await replyConfigDetails(interaction, 'AFK state (afk.json)', bucket);
+        return;
+      }
+
+      if (section === 'noping') {
+        const store = safeReadJsonFromDataFile('noping.json') || {};
+        const bucket = getGuildBucket(store, guildId) || {};
+        await replyConfigDetails(interaction, 'NoPing rules (noping.json)', bucket);
+        return;
+      }
+
+      if (section === 'tickets') {
+        const store = safeReadJsonFromDataFile('tickets.json') || {};
+        const filtered = Object.fromEntries(Object.entries(store).filter(([, t]) => t && t.guildId === guildId));
+        await replyConfigDetails(interaction, 'Tickets (tickets.json)', filtered);
+        return;
+      }
+
+      if (section === 'warnings') {
+        const store = safeReadJsonFromDataFile('warnings.json') || {};
+        const bucket = getGuildBucket(store, guildId) || {};
+        await replyConfigDetails(interaction, 'Warnings (warnings.json)', bucket);
+        return;
+      }
+
+      if (section === 'notes') {
+        const store = safeReadJsonFromDataFile('notes.json') || {};
+        const bucket = getGuildBucket(store, guildId) || {};
+        await replyConfigDetails(interaction, 'Notes (notes.json)', bucket);
+        return;
+      }
+
+      if (section === 'polls') {
+        const store = safeReadJsonFromDataFile('polls.json') || {};
+        const bucket = getGuildBucket(store, guildId) || {};
+        await replyConfigDetails(interaction, 'Polls (polls.json)', bucket);
+        return;
+      }
+
+      if (section === 'test_sessions') {
+        const store = safeReadJsonFromDataFile('test_sessions.json') || {};
+        const bucket = getGuildBucket(store, guildId) || {};
+        await replyConfigDetails(interaction, 'Test sessions (test_sessions.json)', bucket);
+        return;
+      }
+
+      if (section === 'moderations') {
+        const store = safeReadJsonFromDataFile('moderations.json') || {};
+        const bucket = getGuildBucket(store, guildId) || {};
+        await replyConfigDetails(interaction, 'Moderations (moderations.json)', bucket);
+        return;
+      }
+
+      await interaction.reply({ content: 'Unknown config section.', ephemeral: true });
       return;
     }
 

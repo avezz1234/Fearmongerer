@@ -1,4 +1,11 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const {
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require('discord.js');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -255,63 +262,197 @@ module.exports = {
       const embed = new EmbedBuilder()
         .setTitle('Current Configs')
         .setColor(0x002b2d31)
-        .setDescription(`Snapshot generated <t:${nowUnix}:f>.`)
-        .addFields(
-          {
-            name: 'Configured channels (channels.json)',
-            value: truncate(linesForObj(channelsConfig), 1024) || '(none)',
-            inline: false,
-          },
-          {
-            name: 'Welcome (servers.json)',
-            value: truncate(
-              [
-                `• enabled: **${welcomeEnabled ? 'yes' : 'no'}**`,
-                `• channel: ${mentionChannel(welcomeChannelId)}`,
-                `• template: ${welcomeTemplate}`,
-              ].join('\n'),
-              1024,
-            ),
-            inline: false,
-          },
-          {
-            name: 'Automod (automod.json) — phrases censored',
-            value: truncate(
-              [
-                `• blocked entries: **${blocked.length}**`,
-                `• reverse entries: **${reverse.length}**`,
-                '',
-                '**Most recent blocked**',
-                formatAutomodSample(blocked, 5),
-                '',
-                '**Most recent reverse**',
-                formatAutomodSample(reverse, 5),
-              ].join('\n'),
-              1024,
-            ),
-            inline: false,
-          },
-          {
-            name: 'Other stored state (data/*.json)',
-            value: truncate(
-              [
-                `• AFK: **${afkCount}** user(s)`,
-                `• NoPing: **${nopingCount}** rule(s)`,
-                `• Tickets: **${ticketCount}**`,
-                `• Warnings: **${warningTotal}** warning(s) across **${warningUsers}** user(s)`,
-                `• Notes: **${noteTotal}** note(s) across **${noteUsers}** user(s)`,
-                `• Polls: **${pollCount}**`,
-                `• Anon Polls: **${anonPollCount}**`,
-                `• Test Sessions: active **${testActive ? 'yes' : 'no'}**, history **${testHistoryCount}**`,
-                `• Moderations: **${moderationCount}** record(s)`,
-              ].join('\n'),
-              1024,
-            ),
-            inline: false,
-          },
+        .setDescription(`Snapshot generated <t:${nowUnix}:f>. Use the buttons below each message to view the configured entries (ephemeral).`);
+
+      const buildViewRow = (sectionId) =>
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`cfg_view:${sectionId}`)
+            .setLabel('View configured entries')
+            .setStyle(ButtonStyle.Secondary),
         );
 
-      await interaction.reply({ embeds: [embed], ephemeral: true });
+      const summaryEmbeds = [
+        {
+          sectionId: 'channels',
+          embed: new EmbedBuilder()
+            .setTitle('Channel routing')
+            .setColor(0x002b2d31)
+            .setDescription('Where the bot sends command logs, DM forwarding, and other routed output.')
+            .addFields({
+              name: 'Configured channels (channels.json)',
+              value: truncate(linesForObj(channelsConfig), 1024) || '(none)',
+              inline: false,
+            }),
+        },
+        {
+          sectionId: 'welcome',
+          embed: new EmbedBuilder()
+            .setTitle('Welcome configuration')
+            .setColor(0x002b2d31)
+            .setDescription('Server-level welcome settings.')
+            .addFields({
+              name: 'Welcome (servers.json)',
+              value: truncate(
+                [
+                  `• enabled: **${welcomeEnabled ? 'yes' : 'no'}**`,
+                  `• channel: ${mentionChannel(welcomeChannelId)}`,
+                  `• template: ${welcomeTemplate}`,
+                ].join('\n'),
+                1024,
+              ),
+              inline: false,
+            }),
+        },
+        {
+          sectionId: 'automod',
+          embed: new EmbedBuilder()
+            .setTitle('Automod configuration (blocked)')
+            .setColor(0x002b2d31)
+            .setDescription('Current blocked phrase rules. (Phrases are censored in details output.)')
+            .addFields({
+              name: 'Summary',
+              value: truncate(
+                [
+                  `• blocked entries: **${blocked.length}**`,
+                  '',
+                  '**Most recent blocked (censored)**',
+                  formatAutomodSample(blocked, 5),
+                ].join('\n'),
+                1024,
+              ),
+              inline: false,
+            }),
+        },
+        {
+          sectionId: 'reverse_automod',
+          embed: new EmbedBuilder()
+            .setTitle('Reverse Automod configuration')
+            .setColor(0x002b2d31)
+            .setDescription('Phrases that trigger a friendly response instead of moderation. (Phrases are censored in details output.)')
+            .addFields({
+              name: 'Summary',
+              value: truncate(
+                [
+                  `• reverse entries: **${reverse.length}**`,
+                  '',
+                  '**Most recent reverse (censored)**',
+                  formatAutomodSample(reverse, 5),
+                ].join('\n'),
+                1024,
+              ),
+              inline: false,
+            }),
+        },
+        {
+          sectionId: 'afk',
+          embed: new EmbedBuilder()
+            .setTitle('AFK state')
+            .setColor(0x002b2d31)
+            .setDescription('Users currently marked as AFK.')
+            .addFields({
+              name: 'Summary',
+              value: `• AFK users: **${afkCount}**`,
+              inline: false,
+            }),
+        },
+        {
+          sectionId: 'noping',
+          embed: new EmbedBuilder()
+            .setTitle('NoPing rules')
+            .setColor(0x002b2d31)
+            .setDescription('Per-user parse/response rules for ping prevention.')
+            .addFields({
+              name: 'Summary',
+              value: `• NoPing rules: **${nopingCount}**`,
+              inline: false,
+            }),
+        },
+        {
+          sectionId: 'tickets',
+          embed: new EmbedBuilder()
+            .setTitle('Tickets')
+            .setColor(0x002b2d31)
+            .setDescription('Stored ticket records.')
+            .addFields({
+              name: 'Summary',
+              value: `• Tickets: **${ticketCount}**`,
+              inline: false,
+            }),
+        },
+        {
+          sectionId: 'warnings',
+          embed: new EmbedBuilder()
+            .setTitle('Warnings')
+            .setColor(0x002b2d31)
+            .setDescription('Warnings stored per guild/user.')
+            .addFields({
+              name: 'Summary',
+              value: `• Warnings: **${warningTotal}** across **${warningUsers}** user(s)`,
+              inline: false,
+            }),
+        },
+        {
+          sectionId: 'notes',
+          embed: new EmbedBuilder()
+            .setTitle('Notes')
+            .setColor(0x002b2d31)
+            .setDescription('Notes stored per guild/user.')
+            .addFields({
+              name: 'Summary',
+              value: `• Notes: **${noteTotal}** across **${noteUsers}** user(s)`,
+              inline: false,
+            }),
+        },
+        {
+          sectionId: 'polls',
+          embed: new EmbedBuilder()
+            .setTitle('Polls')
+            .setColor(0x002b2d31)
+            .setDescription('Stored poll and anon-poll state.')
+            .addFields({
+              name: 'Summary',
+              value: `• Polls: **${pollCount}**\n• Anon Polls: **${anonPollCount}**`,
+              inline: false,
+            }),
+        },
+        {
+          sectionId: 'test_sessions',
+          embed: new EmbedBuilder()
+            .setTitle('Test sessions')
+            .setColor(0x002b2d31)
+            .setDescription('Voice-session attendance tracking state.')
+            .addFields({
+              name: 'Summary',
+              value: `• Active: **${testActive ? 'yes' : 'no'}**\n• History entries: **${testHistoryCount}**`,
+              inline: false,
+            }),
+        },
+        {
+          sectionId: 'moderations',
+          embed: new EmbedBuilder()
+            .setTitle('Moderations')
+            .setColor(0x002b2d31)
+            .setDescription('Persisted moderation history (e.g., bans).')
+            .addFields({
+              name: 'Summary',
+              value: `• Records: **${moderationCount}**`,
+              inline: false,
+            }),
+        },
+      ];
+
+      await interaction.deferReply({ ephemeral: false });
+      await interaction.editReply({ embeds: [embed], components: [] });
+
+      for (const item of summaryEmbeds) {
+        await interaction.followUp({
+          embeds: [item.embed],
+          components: [buildViewRow(item.sectionId)],
+          ephemeral: false,
+        });
+      }
+
       return;
     }
 
