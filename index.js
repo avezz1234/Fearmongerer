@@ -41,6 +41,7 @@ const {
 const testSessionState = require('./test_session_state');
 const anonPollState = require('./anom_poll_state');
 const anonPollLib = require('./anom_poll_lib');
+const { getSelfRolePanel } = require('./selfrole_state');
 
 async function handleAnonPollSelectMenu(interaction) {
   try {
@@ -121,6 +122,89 @@ async function handleAnonPollSelectMenu(interaction) {
         await interaction.followUp({ content: 'There was an error handling that poll interaction.', ephemeral: true });
       } else {
         await interaction.reply({ content: 'There was an error handling that poll interaction.', ephemeral: true });
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
+
+async function handleSelfRoleSelectMenu(interaction) {
+  try {
+    const customId = typeof interaction.customId === 'string' ? interaction.customId : '';
+    const parts = customId.split('/');
+    if (parts.length < 2) {
+      await interaction.reply({ content: 'Unknown self-role interaction.', ephemeral: true });
+      return;
+    }
+
+    const panelId = parts[1];
+    const panel = getSelfRolePanel(panelId);
+    if (!panel) {
+      await interaction.reply({ content: 'This self-role panel is no longer available.', ephemeral: true });
+      return;
+    }
+
+    if (!interaction.guild) {
+      await interaction.reply({ content: 'Self-roles can only be used inside a server.', ephemeral: true });
+      return;
+    }
+
+    const roleId = Array.isArray(interaction.values) ? interaction.values[0] : null;
+    if (typeof roleId !== 'string' || !roleId.trim()) {
+      await interaction.reply({ content: 'Invalid role selection.', ephemeral: true });
+      return;
+    }
+
+    const allowed = Array.isArray(panel.roleIds) ? panel.roleIds : [];
+    if (!allowed.includes(roleId)) {
+      await interaction.reply({ content: 'That role is not part of this self-role panel.', ephemeral: true });
+      return;
+    }
+
+    const guild = interaction.guild;
+    let role = guild.roles.cache.get(roleId) || null;
+    if (!role) {
+      role = await guild.roles.fetch(roleId).catch(() => null);
+    }
+    if (!role) {
+      await interaction.reply({ content: 'That role no longer exists.', ephemeral: true });
+      return;
+    }
+
+    if (role.id === guild.id) {
+      await interaction.reply({ content: 'You cannot self-assign the @everyone role.', ephemeral: true });
+      return;
+    }
+
+    let member = interaction.member;
+    if (!member || !member.roles || typeof member.roles.add !== 'function') {
+      member = await guild.members.fetch(interaction.user.id).catch(() => null);
+    }
+    if (!member || !member.roles || typeof member.roles.add !== 'function') {
+      await interaction.reply({ content: 'Could not resolve your server membership.', ephemeral: true });
+      return;
+    }
+
+    const hasRole = member.roles.cache && typeof member.roles.cache.has === 'function'
+      ? member.roles.cache.has(role.id)
+      : false;
+
+    if (hasRole) {
+      await member.roles.remove(role.id);
+      await interaction.reply({ content: `✅ Removed ${role} from you.`, ephemeral: true });
+      return;
+    }
+
+    await member.roles.add(role.id);
+    await interaction.reply({ content: `✅ Added ${role} to you.`, ephemeral: true });
+  } catch (error) {
+    console.error('[selfroles] Select menu handling failed:', error);
+    try {
+      if (interaction.deferred || interaction.replied) {
+        await interaction.followUp({ content: 'There was an error handling that self-role interaction.', ephemeral: true });
+      } else {
+        await interaction.reply({ content: 'There was an error handling that self-role interaction.', ephemeral: true });
       }
     } catch {
       // ignore
@@ -1266,6 +1350,11 @@ client.on(Events.InteractionCreate, async interaction => {
 
     if (typeof interaction.customId === 'string' && interaction.customId.startsWith('polls/')) {
       await handleAnonPollSelectMenu(interaction);
+      return;
+    }
+
+    if (typeof interaction.customId === 'string' && interaction.customId.startsWith('selfroles/')) {
+      await handleSelfRoleSelectMenu(interaction);
       return;
     }
   }
