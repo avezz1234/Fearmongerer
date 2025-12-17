@@ -119,15 +119,24 @@ module.exports = {
       .join('\n');
 
     const embed = new EmbedBuilder()
-      .setTitle('Role Info')
+      .setTitle('Self-Assignable Roles')
       .setColor(0x002b2d31)
       .setDescription(
-        `Select a role from the menu below to **toggle** it on your account.\n\n${truncate(lines, 3800)}`,
-      );
+        'Use the dropdown menu below to manage optional roles for this server.\n\n' +
+          'When you select a role:\n' +
+          '• If you already have it, the bot will remove it.\n' +
+          '• If you do not have it, the bot will add it.',
+      )
+      .addFields({
+        name: 'Available roles',
+        value: truncate(lines, 1024) || '(none)',
+      })
+      .setFooter({ text: 'You can update your roles at any time.' })
+      .setTimestamp();
 
     const menu = new StringSelectMenuBuilder()
       .setCustomId(`selfroles/${panelId}`)
-      .setPlaceholder('Select Roles Here!')
+      .setPlaceholder('Choose a role to add/remove…')
       .setMinValues(1)
       .setMaxValues(1)
       .addOptions(
