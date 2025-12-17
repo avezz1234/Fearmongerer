@@ -225,7 +225,7 @@ async function handleSelfRoleSelectMenu(interaction) {
 
     await interaction.update({ components: [refreshedRow] });
     await interaction.followUp({
-      content: hasRole ? `✅ Removed ${role} from you.` : `✅ Added ${role} to you.`,
+      content: hasRole ? `Removed ${role} From your roles!` : `Added ${role} To your roles!`,
       ephemeral: true,
     });
     return;
