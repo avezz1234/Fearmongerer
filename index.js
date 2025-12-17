@@ -192,12 +192,43 @@ async function handleSelfRoleSelectMenu(interaction) {
 
     if (hasRole) {
       await member.roles.remove(role.id);
-      await interaction.reply({ content: `✅ Removed ${role} from you.`, ephemeral: true });
-      return;
+    } else {
+      await member.roles.add(role.id);
     }
 
-    await member.roles.add(role.id);
-    await interaction.reply({ content: `✅ Added ${role} to you.`, ephemeral: true });
+    // Re-render the menu to clear client-side selection, so picking the same role again triggers.
+    const optionRoles = [];
+    for (const id of allowed) {
+      if (id === guild.id) continue;
+      let r = guild.roles.cache.get(id) || null;
+      if (!r) {
+        r = await guild.roles.fetch(id).catch(() => null);
+      }
+      if (!r) continue;
+      if (r.managed) continue;
+      optionRoles.push(r);
+    }
+
+    const refreshedMenu = new StringSelectMenuBuilder()
+      .setCustomId(`selfroles/${panelId}`)
+      .setPlaceholder('Choose a role to add/remove…')
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(
+        optionRoles.map(r => ({
+          label: truncateText(r.name, 100) || 'Role',
+          value: r.id,
+        })),
+      );
+
+    const refreshedRow = new ActionRowBuilder().addComponents(refreshedMenu);
+
+    await interaction.update({ components: [refreshedRow] });
+    await interaction.followUp({
+      content: hasRole ? `✅ Removed ${role} from you.` : `✅ Added ${role} to you.`,
+      ephemeral: true,
+    });
+    return;
   } catch (error) {
     console.error('[selfroles] Select menu handling failed:', error);
     try {
