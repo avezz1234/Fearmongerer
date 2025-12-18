@@ -132,6 +132,43 @@ const HELP_SECTIONS = [
       },
     ],
   },
+  {
+    name: 'Test Sessions & TS',
+    commands: [
+      {
+        key: 'ts_leaderboard',
+        line: '• `/ts_leaderboard` — Post a live-updating TS leaderboard embed (auto-refreshes).',
+      },
+      {
+        key: 'ts_summary',
+        line: '• `/ts_summary` — Show TS leaderboard (static snapshot).',
+      },
+      {
+        key: 'ts_setup',
+        line: '• `/ts_setup` — Initialize TS tracking for members with the tester role.',
+      },
+      {
+        key: 'give_ts',
+        line: '• `/give_ts user: amount:` — Give TS to a user (admin only).',
+      },
+      {
+        key: 'take_ts',
+        line: '• `/take_ts user: amount:` — Take TS from a user (admin only).',
+      },
+      {
+        key: 'test_session_start',
+        line: '• `/test_session_start channel: start_time: duration:` — Start a test session and track attendance.',
+      },
+      {
+        key: 'test_session_end',
+        line: '• `/test_session_end` — End the active test session and report attendance.',
+      },
+      {
+        key: 'mark_attendance',
+        line: '• `/mark_attendance user: [minutes:]` — Manually credit attendance and award +1 TS.',
+      },
+    ],
+  },
 ];
 
 module.exports = {

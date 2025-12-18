@@ -41,6 +41,7 @@ const {
 const testSessionState = require('./test_session_state');
 const anonPollState = require('./anom_poll_state');
 const anonPollLib = require('./anom_poll_lib');
+const { sweepTsLeaderboards } = require('./ts_leaderboard_lib');
 const { getSelfRolePanel } = require('./selfrole_state');
 
 async function handleAnonPollSelectMenu(interaction) {
@@ -1030,6 +1031,7 @@ client.once(Events.ClientReady, c => {
   setInterval(async () => {
     try {
       await sweepAnonPollTimers(client);
+      await sweepTsLeaderboards(client);
 
       const activeSessions = testSessionState.listActiveSessions();
       if (activeSessions.length) {
