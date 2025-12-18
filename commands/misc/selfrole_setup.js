@@ -10,32 +10,7 @@ const crypto = require('node:crypto');
 
 const { createSelfRolePanel } = require('../../selfrole_state');
 
-function uniqueStrings(values) {
-  const out = [];
-  const seen = new Set();
-  for (const v of values) {
-    const s = typeof v === 'string' ? v.trim() : '';
-    if (!s) continue;
-    if (seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
-  }
-  return out;
-}
-
-function parseRoleIds(input) {
-  const raw = typeof input === 'string' ? input : '';
-  const matches = [];
-
-  // Supports: <@&ROLE_ID> mentions, or bare numeric IDs.
-  const re = /<@&(\d{5,})>|\b(\d{5,})\b/g;
-  for (const match of raw.matchAll(re)) {
-    const id = match[1] || match[2];
-    if (id) matches.push(id);
-  }
-
-  return uniqueStrings(matches);
-}
+const MAX_ROLE_PAIRS = 12; // 12 roles + 12 descriptions = 24 options (under Discord's 25 option limit)
 
 function truncate(text, maxLen) {
   const raw = typeof text === 'string' ? text : '';
@@ -43,18 +18,36 @@ function truncate(text, maxLen) {
   return `${raw.slice(0, Math.max(0, maxLen - 1))}…`;
 }
 
+function cleanDescription(input) {
+  const raw = typeof input === 'string' ? input : '';
+  const singleLine = raw.replaceAll(/[\r\n]+/g, ' ').trim();
+  return truncate(singleLine, 200);
+}
+
+const data = new SlashCommandBuilder()
+  .setName('selfrole_setup')
+  .setDescription('Post a self-role dropdown panel in this channel.')
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+  .setDMPermission(false);
+
+for (let i = 1; i <= MAX_ROLE_PAIRS; i += 1) {
+  data.addRoleOption(option =>
+    option
+      .setName(`role${i}`)
+      .setDescription(`Role #${i} to include`)
+      .setRequired(i === 1),
+  );
+
+  data.addStringOption(option =>
+    option
+      .setName(`description${i}`)
+      .setDescription(`Optional description for role #${i}`)
+      .setRequired(false),
+  );
+}
+
 module.exports = {
-  data: new SlashCommandBuilder()
-    .setName('selfrole_setup')
-    .setDescription('Post a self-role dropdown panel in this channel.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .setDMPermission(false)
-    .addStringOption(option =>
-      option
-        .setName('roles')
-        .setDescription('Role mentions/IDs to include (e.g. "<@&123> <@&456>")')
-        .setRequired(true),
-    ),
+  data,
 
   async execute(interaction) {
     const channel = interaction.channel;
@@ -68,54 +61,39 @@ module.exports = {
     }
 
     const guild = interaction.guild;
-    const raw = interaction.options.getString('roles', true);
-    const parsedRoleIds = parseRoleIds(raw);
 
-    if (!parsedRoleIds.length) {
-      await interaction.reply({
-        content: 'No roles were found. Provide role mentions like `<@&ROLE_ID>` or raw role IDs.',
-        ephemeral: true,
-      });
-      return;
-    }
-
-    const roleIds = parsedRoleIds.slice(0, 25);
-    const resolved = [];
-
-    for (const id of roleIds) {
-      if (id === guild.id) {
-        // @everyone
+    const pairs = [];
+    for (let i = 1; i <= MAX_ROLE_PAIRS; i += 1) {
+      const role = interaction.options.getRole(`role${i}`, i === 1);
+      if (!role) {
         continue;
       }
 
-      let role = guild.roles.cache.get(id) || null;
-      if (!role) {
-        role = await guild.roles.fetch(id).catch(() => null);
-      }
-      if (!role) {
-        continue;
+      if (role.id === guild.id) {
+        continue; // @everyone
       }
 
       if (role.managed) {
         continue;
       }
 
-      resolved.push(role);
+      const descRaw = interaction.options.getString(`description${i}`, false);
+      const desc = cleanDescription(descRaw);
+      pairs.push({ role, desc: desc || null });
     }
 
-    if (!resolved.length) {
+    if (!pairs.length) {
       await interaction.reply({
-        content: 'None of the provided roles were valid/assignable by the bot.',
+        content: 'No valid roles were provided.',
         ephemeral: true,
       });
       return;
     }
 
     const panelId = crypto.randomUUID();
-    const displayRoles = resolved.slice(0, 25);
 
-    const lines = displayRoles
-      .map(role => `• ${role}`)
+    const lines = pairs
+      .map(({ role, desc }) => (desc ? `${role}-*${desc}*` : `${role}`))
       .join('\n');
 
     const embed = new EmbedBuilder()
@@ -131,7 +109,7 @@ module.exports = {
       .setMinValues(1)
       .setMaxValues(1)
       .addOptions(
-        displayRoles.map(role => ({
+        pairs.map(({ role }) => ({
           label: truncate(role.name, 100) || 'Role',
           value: role.id,
         })),
@@ -151,7 +129,7 @@ module.exports = {
       guildId: guild.id,
       channelId: interaction.channelId,
       messageId: message.id,
-      roleIds: displayRoles.map(r => r.id),
+      roleIds: pairs.map(p => p.role.id),
       createdBy: interaction.user?.id ?? null,
       createdAt: new Date().toISOString(),
     });
