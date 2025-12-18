@@ -124,6 +124,13 @@ module.exports = {
       ephemeral: false,
     });
 
+    // Post a tiny spacer message under the panel so the dropdown is less likely to open upward over the embed.
+    await interaction.followUp({
+      content: '\u200b',
+      allowedMentions: { parse: [] },
+      ephemeral: false,
+    }).catch(() => null);
+
     createSelfRolePanel({
       id: panelId,
       guildId: guild.id,
