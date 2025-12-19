@@ -37,7 +37,13 @@ module.exports = {
 
     const embed = buildTsLeaderboardEmbed(guildId, testers);
 
-    const message = await interaction.reply({ embeds: [embed], fetchReply: true });
+    const response = await interaction.reply({ embeds: [embed], withResponse: true });
+    const message = response?.resource?.message
+      ?? (await interaction.fetchReply().catch(() => null));
+
+    if (!message) {
+      return;
+    }
 
     // Persist so the bot can keep refreshing it, even after restarts.
     try {

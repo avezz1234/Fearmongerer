@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const http = require('node:http');
 const {
   Client,
   Collection,
@@ -28,6 +29,7 @@ const recentWelcomeMembers = new Map();
 const WELCOME_DEDUPE_WINDOW_MS = 120_000;
 const recentTicketSubmissions = new Map();
 const TICKET_SUBMISSION_DEDUPE_MS = 15_000;
+const missingConfigWarnings = new Set();
 const { ticketState } = require('./ticket_state');
 const { pickNextAssignee } = require('./ticket_assignment_state');
 const { getAfk, clearAfk } = require('./afk_state');
@@ -357,6 +359,52 @@ async function replyConfigDetails(interaction, title, payload, { asJson = true }
   await interaction.reply({ embeds: [embed], files: [attachment], ephemeral: true });
 }
 
+function startHealthServer(client) {
+  const rawPort = process.env.PORT;
+  const port = Number(rawPort);
+  if (!Number.isFinite(port) || port <= 0) {
+    return null;
+  }
+
+  const server = http.createServer((req, res) => {
+    // Minimal health check endpoint for platforms that expect a web listener.
+    res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end('ok');
+  });
+
+  server.listen(port, '0.0.0.0', () => {
+    console.log(`[health] Listening on :${port}`);
+  });
+
+  const shutdown = async (signal) => {
+    try {
+      console.log(`[shutdown] Received ${signal}, closing...`);
+    } catch {
+      // ignore
+    }
+
+    try {
+      await client?.destroy();
+    } catch {
+      // ignore
+    }
+
+    try {
+      server.close(() => process.exit(0));
+    } catch {
+      process.exit(0);
+    }
+
+    const timeout = setTimeout(() => process.exit(0), 5000);
+    if (typeof timeout?.unref === 'function') timeout.unref();
+  };
+
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
+
+  return server;
+}
+
 if (!BOT_TOKEN || BOT_TOKEN === 'YOUR_BOT_TOKEN_HERE') {
   console.error('Please set BOT_TOKEN in constants.js before starting the bot.');
   process.exit(1);
@@ -375,6 +423,8 @@ const client = new Client({
   ],
   partials: [Partials.Channel, Partials.Message, Partials.Reaction],
 });
+
+startHealthServer(client);
 
 client.commands = new Collection();
 
@@ -489,7 +539,10 @@ async function getConfiguredChannel(client, kind) {
   const channels = loadChannelsSafe();
   const id = channels[kind];
   if (!id) {
-    console.warn(`[config] No channel configured for ${kind}`);
+    if (!missingConfigWarnings.has(kind)) {
+      console.warn(`[config] No channel configured for ${kind}`);
+      missingConfigWarnings.add(kind);
+    }
     return null;
   }
 
