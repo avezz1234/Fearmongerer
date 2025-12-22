@@ -19,9 +19,17 @@ module.exports = {
         .setName('channel')
         .setDescription('Channel to clear messages from (defaults to this channel)')
         .setRequired(false),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
     const guild = interaction.guild;
+
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
 
     if (!guild) {
       await interaction.reply({
@@ -75,7 +83,7 @@ module.exports = {
 
     const amount = interaction.options.getInteger('amount', true);
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral });
 
     try {
       const deleted = await targetChannel.bulkDelete(amount, true);

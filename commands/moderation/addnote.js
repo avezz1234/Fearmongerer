@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -54,8 +54,15 @@ module.exports = {
         .setName('text')
         .setDescription('Note text')
         .setRequired(true),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
     if (!interaction.guild) {
       await interaction.reply({
         content: 'This command can only be used in a server.',
@@ -96,9 +103,25 @@ module.exports = {
     store[guildId][userId].push(note);
     saveNotes(store);
 
-    await interaction.reply({
-      content: `? Added note for **${targetUser.tag}** (ID: ${id}).`,
-      ephemeral: true,
-    });
+    if (ephemeral) {
+      await interaction.reply({
+        content: `✅ Added note for **${targetUser.tag}** (ID: ${id}).`,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle('Moderation Note Added')
+      .setColor(0x002b2d31)
+      .addFields(
+        { name: 'Target', value: `${targetUser.tag} (<@${targetUser.id}>)`, inline: false },
+        { name: 'Moderator', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: false },
+        { name: 'Note', value: text, inline: false },
+        { name: 'Note ID', value: id, inline: true },
+      )
+      .setTimestamp(new Date());
+
+    await interaction.reply({ embeds: [embed], ephemeral: false });
   },
 };

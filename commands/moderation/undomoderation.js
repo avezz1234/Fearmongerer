@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -84,11 +84,19 @@ module.exports = {
         .setName('reason')
         .setDescription('Reason for undoing this moderation')
         .setRequired(true),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
     const type = interaction.options.getString('type', true);
     const moderationId = interaction.options.getString('moderation_id', true);
     const undoReason = interaction.options.getString('reason', true);
+
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
 
     if (!interaction.guild) {
       await interaction.reply({ content: 'This command can only be used in a server.', ephemeral: true });
@@ -104,7 +112,43 @@ module.exports = {
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral });
+
+    const sendResult = async ({ title, color, status, targetId, reasonText }) => {
+      if (ephemeral) {
+        const pieces = [];
+        if (status) pieces.push(status);
+        if (targetId) pieces.push(`Target: <@${targetId}>`);
+        if (reasonText) pieces.push(`Reason: ${reasonText}`);
+        pieces.push(`Moderation ID: ${moderationId}`);
+        await interaction.editReply(pieces.join(' | '));
+        return;
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setColor(color)
+        .addFields(
+          { name: 'Type', value: type, inline: true },
+          { name: 'Moderation ID', value: moderationId, inline: true },
+          { name: 'Moderator', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: false },
+        )
+        .setTimestamp(new Date());
+
+      if (targetId) {
+        embed.addFields({ name: 'Target', value: `<@${targetId}>`, inline: false });
+      }
+
+      if (reasonText) {
+        embed.addFields({ name: 'Undo reason', value: reasonText, inline: false });
+      }
+
+      if (status) {
+        embed.addFields({ name: 'Status', value: status, inline: false });
+      }
+
+      await interaction.editReply({ embeds: [embed] });
+    };
 
     const guildId = interaction.guild.id;
     const moderations = loadModerations();
@@ -142,7 +186,13 @@ module.exports = {
       moderations[guildId][moderationId] = record;
       saveModerations(moderations);
 
-      await interaction.editReply(`✅ Undid warn for <@${record.targetId}> (Moderation ID: ${moderationId}). Undo reason: ${undoReason}`);
+      await sendResult({
+        title: 'Warning Undone',
+        color: 0x0095a5a6,
+        status: '✅ Removed the warning from the active warnings list.',
+        targetId: record.targetId,
+        reasonText: undoReason,
+      });
       return;
     }
 
@@ -163,9 +213,23 @@ module.exports = {
       saveModerations(moderations);
 
       if (unbanned) {
-        await interaction.editReply(`✅ Unbanned <@${record.targetId}> for Moderation ID ${moderationId}. They will still need to rejoin the server manually. Undo reason: ${undoReason}`);
+        await sendResult({
+          title: 'Ban Undone',
+          color: 0x0095a5a6,
+          status:
+            '✅ Unbanned the user. They will still need to rejoin the server manually.',
+          targetId: record.targetId,
+          reasonText: undoReason,
+        });
       } else {
-        await interaction.editReply(`ℹ️ Marked ban Moderation ID ${moderationId} as undone, but I could not unban that user (they may already be unbanned, or I lack permission). Undo reason: ${undoReason}`);
+        await sendResult({
+          title: 'Ban Marked Undone',
+          color: 0x0095a5a6,
+          status:
+            'ℹ️ Marked the ban as undone, but could not unban the user (already unbanned, unknown user, or missing permission).',
+          targetId: record.targetId,
+          reasonText: undoReason,
+        });
       }
       return;
     }
@@ -178,7 +242,14 @@ module.exports = {
       moderations[guildId][moderationId] = record;
       saveModerations(moderations);
 
-      await interaction.editReply(`✅ Marked kick Moderation ID ${moderationId} as undone. Note: kicks cannot be automatically reversed; the user must rejoin the server manually. Undo reason: ${undoReason}`);
+      await sendResult({
+        title: 'Kick Marked Undone',
+        color: 0x0095a5a6,
+        status:
+          '✅ Marked the kick as undone. Note: kicks cannot be automatically reversed; the user must rejoin the server manually.',
+        targetId: record.targetId,
+        reasonText: undoReason,
+      });
       return;
     }
 

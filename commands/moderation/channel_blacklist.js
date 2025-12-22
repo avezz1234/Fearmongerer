@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -17,8 +17,15 @@ module.exports = {
         .setName('user')
         .setDescription('User to add to or remove from the blacklist for this channel')
         .setRequired(true),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
     const guild = interaction.guild;
 
     if (!guild) {
@@ -125,19 +132,49 @@ module.exports = {
           role,
           `Removed from ${roleName} by ${interaction.user.tag}`,
         );
-        await interaction.reply({
-          content: `Removed ${member.user.tag} from **${roleName}**. They can see ${channel} again (unless other roles block it).`,
-          ephemeral: true,
-        });
+        if (ephemeral) {
+          await interaction.reply({
+            content: `Removed ${member.user.tag} from **${roleName}**. They can see ${channel} again (unless other roles block it).`,
+            ephemeral: true,
+          });
+        } else {
+          const embed = new EmbedBuilder()
+            .setTitle('Channel Blacklist Updated')
+            .setColor(0x002b2d31)
+            .addFields(
+              { name: 'Action', value: 'Removed from blacklist', inline: true },
+              { name: 'Target', value: `${member.user.tag} (<@${member.user.id}>)`, inline: true },
+              { name: 'Channel', value: `${channel}`, inline: true },
+              { name: 'Role', value: roleName, inline: false },
+              { name: 'Moderator', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: false },
+            )
+            .setTimestamp(new Date());
+          await interaction.reply({ embeds: [embed], ephemeral: false });
+        }
       } else {
         await member.roles.add(
           role,
           `Added to ${roleName} by ${interaction.user.tag}`,
         );
-        await interaction.reply({
-          content: `Added ${member.user.tag} to **${roleName}**. They can no longer view or interact with ${channel}.`,
-          ephemeral: true,
-        });
+        if (ephemeral) {
+          await interaction.reply({
+            content: `Added ${member.user.tag} to **${roleName}**. They can no longer view or interact with ${channel}.`,
+            ephemeral: true,
+          });
+        } else {
+          const embed = new EmbedBuilder()
+            .setTitle('Channel Blacklist Updated')
+            .setColor(0x002b2d31)
+            .addFields(
+              { name: 'Action', value: 'Added to blacklist', inline: true },
+              { name: 'Target', value: `${member.user.tag} (<@${member.user.id}>)`, inline: true },
+              { name: 'Channel', value: `${channel}`, inline: true },
+              { name: 'Role', value: roleName, inline: false },
+              { name: 'Moderator', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: false },
+            )
+            .setTimestamp(new Date());
+          await interaction.reply({ embeds: [embed], ephemeral: false });
+        }
       }
     } catch (error) {
       console.error('[channel_blacklist] Failed to toggle blacklist role:', error);

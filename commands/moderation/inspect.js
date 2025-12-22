@@ -35,6 +35,12 @@ module.exports = {
         .setName('moderation_id')
         .setDescription('Moderation ID to inspect (from warn/kick/ban messages).')
         .setRequired(true),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
     const moderationId = interaction.options.getString('moderation_id', true);
@@ -47,6 +53,8 @@ module.exports = {
       return;
     }
 
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
+
     const callerPermissions = interaction.memberPermissions;
     if (!callerPermissions?.has(PermissionFlagsBits.ModerateMembers)) {
       await interaction.reply({
@@ -57,7 +65,7 @@ module.exports = {
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral });
 
     const guildId = interaction.guild.id;
     const store = loadModerationsSafe();

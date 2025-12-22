@@ -13,9 +13,17 @@ module.exports = {
         .setRequired(true)
         .setMinValue(1)
         .setMaxValue(30),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
     const days = interaction.options.getInteger('days', true);
+
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
 
     if (!interaction.guild) {
       await interaction.reply({
@@ -44,7 +52,7 @@ module.exports = {
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral });
 
     const now = Date.now();
     const dayMs = 24 * 60 * 60 * 1000;

@@ -55,11 +55,19 @@ module.exports = {
         .setName('reason')
         .setDescription('Reason for the ban')
         .setRequired(true),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
     const targetUser = interaction.options.getUser('target', true);
     const rawReason = interaction.options.getString('reason', true);
     const reason = rawReason.trim();
+
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
 
     if (!reason.length) {
       await interaction.reply({
@@ -95,7 +103,7 @@ module.exports = {
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral });
 
     const moderationId = generateModerationId();
     const moderations = loadModerations();
@@ -132,7 +140,24 @@ module.exports = {
 
       await member.ban({ reason: `${reason} | Banned by ${interaction.user.tag}` });
 
-      await interaction.editReply(`✅ Banned **${targetUser.tag}**. Reason: ${reason} (Moderation ID: ${moderationId})`);
+      if (ephemeral) {
+        await interaction.editReply(
+          `✅ Banned **${targetUser.tag}**. Reason: ${reason} (Moderation ID: ${moderationId})`,
+        );
+      } else {
+        const publicEmbed = new EmbedBuilder()
+          .setTitle('Member Banned')
+          .setColor(0x00e74c3c)
+          .addFields(
+            { name: 'Target', value: `${targetUser.tag} (<@${targetUser.id}>)`, inline: true },
+            { name: 'Moderator', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: true },
+            { name: 'Reason', value: reason, inline: false },
+            { name: 'Moderation ID', value: moderationId, inline: false },
+          )
+          .setTimestamp();
+
+        await interaction.editReply({ embeds: [publicEmbed] });
+      }
     } catch (error) {
       console.error('Error executing /ban:', error);
       await interaction.editReply('There was an error while trying to ban that member.');

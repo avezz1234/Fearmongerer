@@ -153,8 +153,15 @@ module.exports = {
         .setName('channel')
         .setDescription('Channel to use for this purpose')
         .setRequired(false),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
     if (!interaction.guild) {
       await interaction.reply({
         content: 'This command can only be used in a server.',
@@ -443,14 +450,14 @@ module.exports = {
         },
       ];
 
-      await interaction.deferReply({ ephemeral: false });
+      await interaction.deferReply({ ephemeral });
       await interaction.editReply({ embeds: [embed], components: [] });
 
       for (const item of summaryEmbeds) {
         await interaction.followUp({
           embeds: [item.embed],
           components: [buildViewRow(item.sectionId)],
-          ephemeral: false,
+          ephemeral,
         });
       }
 
@@ -486,7 +493,7 @@ module.exports = {
 
     await interaction.reply({
       content: `✅ Set ${label} channel to ${channel}.`,
-      ephemeral: true,
+      ephemeral,
     });
   },
 };

@@ -13,12 +13,19 @@ module.exports = {
         .setName('user')
         .setDescription('User to blacklist (ignored; use /channel_blacklist instead).')
         .setRequired(false),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
     await interaction.reply({
       content:
         'This command has been replaced by `/channel_blacklist`. Please use that command and pick the appropriate channel instead.',
-      ephemeral: true,
+      ephemeral,
     });
   },
 };

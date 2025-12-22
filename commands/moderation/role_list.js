@@ -17,8 +17,15 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('role_list')
     .setDescription('List all roles in this server and summarize their important permissions.')
-    .setDMPermission(false),
+    .setDMPermission(false)
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
+    ),
   async execute(interaction) {
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
     if (!interaction.guild) {
       await interaction.reply({
         content: 'This command can only be used in a server.',
@@ -27,7 +34,7 @@ module.exports = {
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral });
 
     const guild = interaction.guild;
     const roles = await guild.roles.fetch();

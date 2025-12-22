@@ -55,10 +55,18 @@ module.exports = {
         .setName('reason')
         .setDescription('Reason for the kick')
         .setRequired(false),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
     const targetUser = interaction.options.getUser('target', true);
     const reason = interaction.options.getString('reason') ?? 'No reason provided.';
+
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
 
     if (!interaction.guild) {
       await interaction.reply({ content: 'This command can only be used in a server.', ephemeral: true });
@@ -77,7 +85,7 @@ module.exports = {
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral });
 
     const moderationId = generateModerationId();
     const moderations = loadModerations();
@@ -112,7 +120,24 @@ module.exports = {
 
       await member.kick(`${reason} | Kicked by ${interaction.user.tag}`);
 
-      await interaction.editReply(`✅ Kicked **${targetUser.tag}**. Reason: ${reason} (Moderation ID: ${moderationId})`);
+      if (ephemeral) {
+        await interaction.editReply(
+          `✅ Kicked **${targetUser.tag}**. Reason: ${reason} (Moderation ID: ${moderationId})`,
+        );
+      } else {
+        const publicEmbed = new EmbedBuilder()
+          .setTitle('Member Kicked')
+          .setColor(0x00e67e22)
+          .addFields(
+            { name: 'Target', value: `${targetUser.tag} (<@${targetUser.id}>)`, inline: true },
+            { name: 'Moderator', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: true },
+            { name: 'Reason', value: reason, inline: false },
+            { name: 'Moderation ID', value: moderationId, inline: false },
+          )
+          .setTimestamp();
+
+        await interaction.editReply({ embeds: [publicEmbed] });
+      }
     } catch (error) {
       console.error('Error executing /kick:', error);
       await interaction.editReply('There was an error while trying to kick that member.');

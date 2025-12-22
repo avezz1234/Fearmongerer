@@ -17,12 +17,20 @@ module.exports = {
         .setName('text')
         .setDescription('Message text to send')
         .setRequired(true),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
     const targetUser = interaction.options.getUser('target', true);
     const text = interaction.options.getString('text', true);
 
-    await interaction.deferReply({ ephemeral: true });
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
+
+    await interaction.deferReply({ ephemeral });
 
     try {
       await targetUser.send(text);

@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -10,6 +10,12 @@ module.exports = {
       option
         .setName('reason')
         .setDescription('Optional reason for closing this post.')
+        .setRequired(false),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
         .setRequired(false),
     ),
   async execute(interaction) {
@@ -26,23 +32,34 @@ module.exports = {
 
     const reason = interaction.options.getString('reason') ?? '';
     const trimmedReason = reason.trim();
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
     const auditReason = trimmedReason.length
       ? `Closed by ${interaction.user.tag}: ${trimmedReason}`
       : `Closed by ${interaction.user.tag}`;
 
-    const publicLines = [];
-    publicLines.push('🔒 This post has been locked by staff.');
+    const publicEmbed = new EmbedBuilder()
+      .setTitle('Forum Post Locked')
+      .setColor(0x00e67e22)
+      .addFields(
+        { name: 'Post', value: `${channel}`, inline: false },
+        { name: 'Moderator', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: false },
+      )
+      .setTimestamp(new Date());
+
     if (trimmedReason.length) {
-      publicLines.push(`Reason: ${trimmedReason}`);
+      publicEmbed.addFields({ name: 'Reason', value: trimmedReason, inline: false });
     }
-    publicLines.push('No new replies can be added.');
 
     try {
-      // Send the public notice in the forum post first, then lock/archive it.
-      await interaction.reply({
-        content: publicLines.join('\n'),
-        ephemeral: false,
-      });
+      if (ephemeral) {
+        await interaction.reply({ content: '✅ Locked this forum post.', ephemeral: true });
+      } else {
+        // Send the public notice in the forum post first, then lock/archive it.
+        await interaction.reply({
+          embeds: [publicEmbed],
+          ephemeral: false,
+        });
+      }
 
       await channel.setLocked(true, auditReason);
       await channel.setArchived(true, auditReason);

@@ -8,8 +8,15 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('emergencymaintenance')
     .setDescription('Emergency-use maintenance helper for raids or incidents; applies a special "." role.')
-    .setDMPermission(false),
+    .setDMPermission(false)
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
+    ),
   async execute(interaction) {
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
     if (!interaction.guild) {
       await interaction.reply({
         content: 'This command can only be used inside a server.',
@@ -28,7 +35,7 @@ module.exports = {
 
     const guild = interaction.guild;
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral });
 
     try {
       let role = guild.roles.cache.find(r => r.name === ROLE_NAME) || null;

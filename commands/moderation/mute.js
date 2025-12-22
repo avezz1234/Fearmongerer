@@ -24,11 +24,19 @@ module.exports = {
         .setName('reason')
         .setDescription('Reason for the mute')
         .setRequired(false),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
     const targetUser = interaction.options.getUser('target', true);
     const minutes = interaction.options.getInteger('minutes') ?? 10;
     const reason = interaction.options.getString('reason') ?? 'No reason provided.';
+
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
 
     if (!interaction.guild) {
       await interaction.reply({ content: 'This command can only be used in a server.', ephemeral: true });
@@ -62,7 +70,7 @@ module.exports = {
     const expiresAt = now + durationMs;
     const expiresAtUnix = Math.floor(expiresAt / 1000);
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral });
 
     try {
       try {
@@ -82,9 +90,25 @@ module.exports = {
 
       await member.timeout(durationMs, `${reason} | Muted by ${interaction.user.tag}`);
 
-      await interaction.editReply(
-        `✅ Muted **${targetUser.tag}** for ${clampedMinutes} minute(s). Expires <t:${expiresAtUnix}:F> (<t:${expiresAtUnix}:R>). Reason: ${reason}`,
-      );
+      if (ephemeral) {
+        await interaction.editReply(
+          `✅ Muted **${targetUser.tag}** for ${clampedMinutes} minute(s). Expires <t:${expiresAtUnix}:F> (<t:${expiresAtUnix}:R>). Reason: ${reason}`,
+        );
+      } else {
+        const publicEmbed = new EmbedBuilder()
+          .setTitle('Member Timed Out')
+          .setColor(0x00f1c40f)
+          .addFields(
+            { name: 'Target', value: `${targetUser.tag} (<@${targetUser.id}>)`, inline: true },
+            { name: 'Moderator', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: true },
+            { name: 'Duration', value: `${clampedMinutes} minute(s)`, inline: true },
+            { name: 'Expires', value: `<t:${expiresAtUnix}:F> (<t:${expiresAtUnix}:R>)`, inline: true },
+            { name: 'Reason', value: reason, inline: false },
+          )
+          .setTimestamp();
+
+        await interaction.editReply({ embeds: [publicEmbed] });
+      }
     } catch (error) {
       console.error('Error executing /mute:', error);
       await interaction.editReply('There was an error while trying to mute that member.');

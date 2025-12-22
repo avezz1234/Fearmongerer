@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -10,6 +10,12 @@ module.exports = {
       option
         .setName('reason')
         .setDescription('Optional reason for reopening this post.')
+        .setRequired(false),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
         .setRequired(false),
     ),
   async execute(interaction) {
@@ -29,20 +35,31 @@ module.exports = {
     const auditReason = trimmedReason.length
       ? `Reopened by ${interaction.user.tag}: ${trimmedReason}`
       : `Reopened by ${interaction.user.tag}`;
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
 
-    const publicLines = [];
-    publicLines.push('\ud83d\udd13 This post has been unlocked by staff.');
+    const publicEmbed = new EmbedBuilder()
+      .setTitle('Forum Post Unlocked')
+      .setColor(0x2ecc71)
+      .addFields(
+        { name: 'Post', value: `${channel}`, inline: false },
+        { name: 'Moderator', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: false },
+      )
+      .setTimestamp(new Date());
+
     if (trimmedReason.length) {
-      publicLines.push(`Reason: ${trimmedReason}`);
+      publicEmbed.addFields({ name: 'Reason', value: trimmedReason, inline: false });
     }
-    publicLines.push('New replies can now be added.');
 
     try {
-      // Send the public notice in the forum post first, then unarchive/unlock it.
-      await interaction.reply({
-        content: publicLines.join('\n'),
-        ephemeral: false,
-      });
+      if (ephemeral) {
+        await interaction.reply({ content: '✅ Unlocked this forum post.', ephemeral: true });
+      } else {
+        // Send the public notice in the forum post first, then unarchive/unlock it.
+        await interaction.reply({
+          embeds: [publicEmbed],
+          ephemeral: false,
+        });
+      }
 
       await channel.setArchived(false, auditReason);
       await channel.setLocked(false, auditReason);

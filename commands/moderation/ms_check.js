@@ -209,9 +209,17 @@ module.exports = {
           { name: 'This week (w)', value: 'w' },
           { name: 'This month (m)', value: 'm' },
         ),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
     const guild = interaction.guild;
+
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
 
     if (!guild) {
       await interaction.reply({
@@ -236,7 +244,7 @@ module.exports = {
       interaction.options.getUser('moderator') ?? interaction.user;
 
     try {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ ephemeral });
 
       const guildId = guild.id;
       const moderatorId = targetUser.id;

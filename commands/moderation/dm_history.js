@@ -83,6 +83,12 @@ module.exports = {
         .setName('user')
         .setDescription('User to show DM history for')
         .setRequired(true),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
     if (!interaction.guild) {
@@ -96,9 +102,11 @@ module.exports = {
       return;
     }
 
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
+
     const targetUser = interaction.options.getUser('user', true);
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral });
 
     const dmChannel = await targetUser.createDM().catch(() => null);
     if (!dmChannel) {

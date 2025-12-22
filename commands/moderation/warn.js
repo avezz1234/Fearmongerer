@@ -79,17 +79,25 @@ module.exports = {
         .setName('reason')
         .setDescription('Reason for the warning')
         .setRequired(false),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
     const targetUser = interaction.options.getUser('target', true);
     const reason = interaction.options.getString('reason') ?? 'No reason provided.';
+
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
 
     if (!interaction.guild) {
       await interaction.reply({ content: 'This command can only be used in a server.', ephemeral: true });
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral });
 
     const now = Date.now();
     const warnTtlMs = WARN_TTL_DAYS * 24 * 60 * 60 * 1000;
@@ -159,9 +167,26 @@ module.exports = {
         // Ignore DM failures (user may have DMs disabled or blocked the bot)
       }
 
-      await interaction.editReply(
-        `⚠️ Warned **${targetUser.tag}**. Active warnings in this server: ${activeCount}. Expires <t:${expiresAtUnix}:F> (<t:${expiresAtUnix}:R>). Reason: ${reason} (Moderation ID: ${moderationId})`,
-      );
+      if (ephemeral) {
+        await interaction.editReply(
+          `⚠️ Warned **${targetUser.tag}**. Active warnings in this server: ${activeCount}. Expires <t:${expiresAtUnix}:F> (<t:${expiresAtUnix}:R>). Reason: ${reason} (Moderation ID: ${moderationId})`,
+        );
+      } else {
+        const publicEmbed = new EmbedBuilder()
+          .setTitle('Member Warned')
+          .setColor(0x00f1c40f)
+          .addFields(
+            { name: 'Target', value: `${targetUser.tag} (<@${targetUser.id}>)`, inline: true },
+            { name: 'Moderator', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: true },
+            { name: 'Reason', value: reason, inline: false },
+            { name: 'Active warnings (this server)', value: String(activeCount), inline: true },
+            { name: 'Expires', value: `<t:${expiresAtUnix}:F> (<t:${expiresAtUnix}:R>)`, inline: true },
+            { name: 'Moderation ID', value: moderationId, inline: false },
+          )
+          .setTimestamp();
+
+        await interaction.editReply({ embeds: [publicEmbed] });
+      }
     } catch (error) {
       console.error('Error executing /warn:', error);
       await interaction.editReply('There was an error while trying to warn that member.');

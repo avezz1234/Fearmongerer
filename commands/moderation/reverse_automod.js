@@ -17,15 +17,28 @@ module.exports = {
             .setName('words')
             .setDescription('Word(s) or phrase(s) to celebrate; comma-separated is allowed.')
             .setRequired(true),
+        )
+        .addBooleanOption(option =>
+          option
+            .setName('ephemeral')
+            .setDescription('Reply ephemerally (default true)')
+            .setRequired(false),
         ),
     )
     .addSubcommand(subcommand =>
       subcommand
         .setName('clear')
-        .setDescription('Clear all reverse automod words for this server.'),
+        .setDescription('Clear all reverse automod words for this server.')
+        .addBooleanOption(option =>
+          option
+            .setName('ephemeral')
+            .setDescription('Reply ephemerally (default true)')
+            .setRequired(false),
+        ),
     ),
 
   async execute(interaction) {
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
     if (!interaction.guild) {
       await interaction.reply({
         content: 'This command can only be used in a server.',
@@ -63,7 +76,7 @@ module.exports = {
 
       await interaction.reply({
         content: `${summary} I will now reply "Yay!" when I see these word(s), without deleting any messages.`,
-        ephemeral: true,
+        ephemeral,
       });
       return;
     }
@@ -75,7 +88,7 @@ module.exports = {
       await interaction.reply({
         content:
           'Reverse automod has been reset for this server; no Yay! trigger words are currently configured.',
-        ephemeral: true,
+        ephemeral,
       });
       return;
     }

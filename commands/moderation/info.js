@@ -133,8 +133,15 @@ module.exports = {
         .setName('target')
         .setDescription('User to inspect (defaults to you)')
         .setRequired(false),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
     const user = interaction.options.getUser('target') ?? interaction.user;
 
     if (!interaction.guild) {
@@ -393,6 +400,6 @@ module.exports = {
 
     embed.addFields({ name: 'Notes (most recent first)', value: notesValue, inline: false });
 
-    await interaction.reply({ embeds: [embed], ephemeral: true });
+    await interaction.reply({ embeds: [embed], ephemeral });
   },
 };

@@ -11,9 +11,17 @@ module.exports = {
         .setName('player')
         .setDescription('User whose messages to clear across the server')
         .setRequired(true),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
     const targetUser = interaction.options.getUser('player', true);
+
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
 
     if (!interaction.guild) {
       await interaction.reply({
@@ -43,7 +51,7 @@ module.exports = {
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral });
 
     const maxMessagesPerChannel = 500;
     const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;

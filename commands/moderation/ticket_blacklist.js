@@ -1,6 +1,7 @@
 const {
   SlashCommandBuilder,
   PermissionFlagsBits,
+  EmbedBuilder,
 } = require('discord.js');
 
 const TICKET_BLACKLIST_ROLE_NAME = 'Ticket Blacklist';
@@ -16,8 +17,15 @@ module.exports = {
         .setName('user')
         .setDescription('User to add to or remove from the ticket blacklist.')
         .setRequired(true),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
     const guild = interaction.guild;
 
     if (!guild) {
@@ -91,19 +99,45 @@ module.exports = {
           role,
           `Removed from ticket blacklist by ${interaction.user.tag}`,
         );
-        await interaction.reply({
-          content: `Removed ${member.user.tag} from the ticket blacklist. They can use the bot again.`,
-          ephemeral: true,
-        });
+        if (ephemeral) {
+          await interaction.reply({
+            content: `Removed ${member.user.tag} from the ticket blacklist. They can use the bot again.`,
+            ephemeral: true,
+          });
+        } else {
+          const embed = new EmbedBuilder()
+            .setTitle('Ticket Blacklist Updated')
+            .setColor(0x002b2d31)
+            .addFields(
+              { name: 'Action', value: 'Removed from ticket blacklist', inline: false },
+              { name: 'Target', value: `${member.user.tag} (<@${member.user.id}>)`, inline: false },
+              { name: 'Moderator', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: false },
+            )
+            .setTimestamp(new Date());
+          await interaction.reply({ embeds: [embed], ephemeral: false });
+        }
       } else {
         await member.roles.add(
           role,
           `Added to ticket blacklist by ${interaction.user.tag}`,
         );
-        await interaction.reply({
-          content: `Added ${member.user.tag} to the ticket blacklist. They can no longer use the ticket system.`,
-          ephemeral: true,
-        });
+        if (ephemeral) {
+          await interaction.reply({
+            content: `Added ${member.user.tag} to the ticket blacklist. They can no longer use the ticket system.`,
+            ephemeral: true,
+          });
+        } else {
+          const embed = new EmbedBuilder()
+            .setTitle('Ticket Blacklist Updated')
+            .setColor(0x002b2d31)
+            .addFields(
+              { name: 'Action', value: 'Added to ticket blacklist', inline: false },
+              { name: 'Target', value: `${member.user.tag} (<@${member.user.id}>)`, inline: false },
+              { name: 'Moderator', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: false },
+            )
+            .setTimestamp(new Date());
+          await interaction.reply({ embeds: [embed], ephemeral: false });
+        }
       }
     } catch (error) {
       console.error('[blacklist] Failed to toggle ticket blacklist role:', error);

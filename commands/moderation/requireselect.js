@@ -52,6 +52,12 @@ module.exports = {
             .setName('channel')
             .setDescription('Channel to apply this rule to (defaults to current channel)')
             .setRequired(false),
+        )
+        .addBooleanOption(option =>
+          option
+            .setName('ephemeral')
+            .setDescription('Reply ephemerally (default true)')
+            .setRequired(false),
         ),
     )
     .addSubcommand(subcommand =>
@@ -62,6 +68,12 @@ module.exports = {
           option
             .setName('channel')
             .setDescription('Channel to clear (defaults to current channel)')
+            .setRequired(false),
+        )
+        .addBooleanOption(option =>
+          option
+            .setName('ephemeral')
+            .setDescription('Reply ephemerally (default true)')
             .setRequired(false),
         ),
     )
@@ -74,10 +86,17 @@ module.exports = {
             .setName('channel')
             .setDescription('Channel to inspect (defaults to current channel)')
             .setRequired(false),
+        )
+        .addBooleanOption(option =>
+          option
+            .setName('ephemeral')
+            .setDescription('Reply ephemerally (default true)')
+            .setRequired(false),
         ),
     ),
 
   async execute(interaction) {
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
     if (!interaction.guild) {
       await interaction.reply({
         content: 'This command can only be used in a server.',
@@ -104,7 +123,7 @@ module.exports = {
 
       await interaction.reply({
         content: `✅ Now requiring **${media}** in ${channel}. Messages without the required media will be deleted. (Users with **Manage Messages** are ignored.)`,
-        ephemeral: true,
+        ephemeral,
       });
       return;
     }
@@ -116,14 +135,14 @@ module.exports = {
       if (!prior) {
         await interaction.reply({
           content: `No /requireselect rule was set for ${channel}.`,
-          ephemeral: true,
+          ephemeral,
         });
         return;
       }
 
       await interaction.reply({
         content: `✅ Cleared the /requireselect rule for ${channel}.`,
-        ephemeral: true,
+        ephemeral,
       });
       return;
     }
@@ -133,14 +152,14 @@ module.exports = {
       if (!rule || !rule.requiredType) {
         await interaction.reply({
           content: `No /requireselect rule is set for ${channel}.`,
-          ephemeral: true,
+          ephemeral,
         });
         return;
       }
 
       await interaction.reply({
         content: `Current /requireselect for ${channel}: **${rule.requiredType}**`,
-        ephemeral: true,
+        ephemeral,
       });
       return;
     }

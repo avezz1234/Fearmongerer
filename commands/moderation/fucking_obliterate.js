@@ -202,12 +202,20 @@ module.exports = {
         .setName('reason')
         .setDescription('Reason (optional).')
         .setRequired(false),
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('ephemeral')
+        .setDescription('Reply ephemerally (default true)')
+        .setRequired(false),
     ),
   async execute(interaction) {
     const targetUser = interaction.options.getUser('user', true);
     const confirmation = interaction.options.getString('confirm', true);
     const customReason = interaction.options.getString('reason');
     const providedLaunchCode = interaction.options.getString('launch_code', true);
+
+    const ephemeral = interaction.options.getBoolean('ephemeral') ?? true;
 
     if (!interaction.guild) {
       await interaction.reply({
@@ -270,7 +278,7 @@ module.exports = {
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral });
 
     // Step 1: Ban user
     let banResultText = 'Ban not attempted.';
@@ -305,10 +313,32 @@ module.exports = {
     }
 
     if (!banSucceeded) {
-      await interaction.editReply(
-        `⛔ Aborted before scrubbing. Step 1 — Ban user: ${banResultText}\n\n` +
-          'I did **not** scrub messages/reactions because I could not confirm the ban. Fix my Ban Members permission / role hierarchy (or ban manually), then rerun this command.',
-      );
+      if (ephemeral) {
+        await interaction.editReply(
+          `⛔ Aborted before scrubbing. Step 1 — Ban user: ${banResultText}\n\n` +
+            'I did **not** scrub messages/reactions because I could not confirm the ban. Fix my Ban Members permission / role hierarchy (or ban manually), then rerun this command.',
+        );
+      } else {
+        const { EmbedBuilder } = require('discord.js');
+        const embed = new EmbedBuilder()
+          .setTitle('Nuclear Obliteration (Aborted)')
+          .setColor(0x00e74c3c)
+          .addFields(
+            { name: 'Target', value: `${targetUser.tag} (<@${targetUser.id}>)`, inline: false },
+            { name: 'Moderator', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: false },
+            {
+              name: 'Reason',
+              value:
+                customReason && customReason.trim().length
+                  ? customReason.trim()
+                  : 'Nuclear obliteration via /fucking_obliterate',
+              inline: false,
+            },
+            { name: 'Status', value: `⛔ Aborted before scrubbing. Step 1 — Ban user: ${banResultText}`, inline: false },
+          )
+          .setTimestamp(new Date());
+        await interaction.editReply({ embeds: [embed] });
+      }
       return;
     }
 
@@ -383,7 +413,35 @@ module.exports = {
         'Note: Discord API limits (especially the 14-day bulk-delete rule and rate limits) mean very old content or content in channels I cannot see may remain. For very large servers you may need to run this more than once.',
       );
 
-      await interaction.editReply(lines.join('\n'));
+      if (ephemeral) {
+        await interaction.editReply(lines.join('\n'));
+      } else {
+        const { EmbedBuilder } = require('discord.js');
+        const baseReason =
+          customReason && customReason.trim().length
+            ? customReason.trim()
+            : 'Nuclear obliteration via /fucking_obliterate';
+
+        const embed = new EmbedBuilder()
+          .setTitle('Nuclear Obliteration Complete')
+          .setColor(0x00e74c3c)
+          .addFields(
+            { name: 'Target', value: `${targetUser.tag} (<@${targetUser.id}>)`, inline: false },
+            { name: 'Moderator', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: false },
+            { name: 'Reason', value: baseReason, inline: false },
+            { name: 'Step 1 — Ban user', value: banResultText, inline: false },
+            { name: 'Channels scanned', value: String(channelsScanned), inline: true },
+            { name: 'Authored messages/posts deleted', value: String(totalUserMessagesDeleted), inline: true },
+            { name: 'Reactions removed', value: String(totalReactionsRemoved), inline: true },
+            { name: 'Mention messages deleted', value: String(totalMentionMessagesDeleted), inline: true },
+          )
+          .setDescription(
+            'Note: Discord API limits (especially the 14-day bulk-delete rule and rate limits) mean very old content or content in channels I cannot see may remain. For very large servers you may need to run this more than once.',
+          )
+          .setTimestamp(new Date());
+
+        await interaction.editReply({ embeds: [embed] });
+      }
     } catch (error) {
       console.error('Error executing /fucking_obliterate:', error);
       const message =
