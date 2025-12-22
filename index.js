@@ -34,6 +34,7 @@ const { ticketState } = require('./ticket_state');
 const { pickNextAssignee } = require('./ticket_assignment_state');
 const { getAfk, clearAfk } = require('./afk_state');
 const { getNoPingRule } = require('./noping_state');
+const { getRequireSelectRule } = require('./requireselect_state');
 const { getAutomodRules, getReverseAutomodRules } = require('./automod_state');
 const {
   getWelcomeEnabled,
@@ -366,10 +367,131 @@ function startHealthServer(client) {
     return null;
   }
 
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
+    const url = typeof req.url === 'string' ? req.url : '/';
+    const host = typeof req.headers.host === 'string' ? req.headers.host : 'localhost';
+    let pathname = '/';
+
+    try {
+      const parsed = new URL(url, `http://${host}`);
+      pathname = parsed.pathname || '/';
+    } catch {
+      pathname = '/';
+    }
+
+    const replyText = (status, body) => {
+      res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end(body);
+    };
+
     // Minimal health check endpoint for platforms that expect a web listener.
-    res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('ok');
+    if (req.method === 'GET' && (pathname === '/' || pathname === '/health')) {
+      replyText(200, 'ok');
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/roblox/event') {
+      const expectedSecret = process.env.ROBLOX_SHARED_SECRET;
+      if (!expectedSecret || !expectedSecret.trim()) {
+        replyText(503, 'ROBLOX_SHARED_SECRET not configured');
+        return;
+      }
+
+      const providedSecretRaw = req.headers['x-roblox-secret'];
+      const providedSecret = Array.isArray(providedSecretRaw)
+        ? providedSecretRaw[0]
+        : (providedSecretRaw || '');
+
+      if (providedSecret !== expectedSecret) {
+        replyText(401, 'unauthorized');
+        return;
+      }
+
+      if (!client || typeof client.isReady !== 'function' || !client.isReady()) {
+        replyText(503, 'discord client not ready');
+        return;
+      }
+
+      const chunks = [];
+      let total = 0;
+      const maxBytes = 1_000_000;
+
+      try {
+        for await (const chunk of req) {
+          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+          total += buf.length;
+          if (total > maxBytes) {
+            replyText(413, 'payload too large');
+            return;
+          }
+          chunks.push(buf);
+        }
+      } catch (error) {
+        console.error('[roblox-event] Failed reading request body:', error);
+        replyText(400, 'bad request');
+        return;
+      }
+
+      let payload = null;
+      try {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        payload = raw ? JSON.parse(raw) : null;
+      } catch {
+        payload = null;
+      }
+
+      if (!payload || typeof payload !== 'object') {
+        replyText(400, 'invalid json');
+        return;
+      }
+
+      const title = typeof payload.title === 'string' && payload.title.trim()
+        ? payload.title.trim()
+        : 'Roblox event';
+      const description = typeof payload.description === 'string' && payload.description.trim()
+        ? payload.description.trim()
+        : null;
+      const content = typeof payload.content === 'string' ? payload.content : '';
+      const placeId = typeof payload.placeId === 'number' || typeof payload.placeId === 'string'
+        ? String(payload.placeId)
+        : null;
+      const jobId = typeof payload.jobId === 'string' ? payload.jobId : null;
+      const firedBy = typeof payload.firedBy === 'string' ? payload.firedBy : null;
+
+      const channel = await getConfiguredChannel(client, 'roblox_events');
+      if (!channel) {
+        replyText(202, 'no roblox_events channel configured');
+        return;
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle(truncateText(title, 256) || 'Roblox event')
+        .setColor(0x005865f2)
+        .setTimestamp(new Date());
+
+      if (description) {
+        embed.setDescription(truncateText(description, 4000));
+      }
+
+      const fields = [];
+      if (placeId) fields.push({ name: 'Place', value: placeId, inline: true });
+      if (jobId) fields.push({ name: 'Server', value: truncateText(jobId, 1024), inline: true });
+      if (firedBy) fields.push({ name: 'Fired by', value: truncateText(firedBy, 1024), inline: true });
+      if (fields.length) embed.addFields(fields);
+
+      try {
+        await channel.send({ content, embeds: [embed] });
+      } catch (error) {
+        console.error('[roblox-event] Failed to send message:', error);
+        replyText(500, 'failed to send');
+        return;
+      }
+
+      replyText(200, 'ok');
+      return;
+    }
+
+    replyText(404, 'not found');
   });
 
   server.listen(port, '0.0.0.0', () => {
@@ -2708,6 +2830,111 @@ client.on(Events.MessageCreate, async message => {
   try {
     const guildId = message.guild.id;
     const fromId = message.author.id;
+
+    const requireSelectRule = getRequireSelectRule(guildId, message.channelId);
+    if (
+      requireSelectRule &&
+      typeof requireSelectRule.requiredType === 'string' &&
+      requireSelectRule.requiredType.trim().length
+    ) {
+      const requiredType = requireSelectRule.requiredType.trim().toLowerCase();
+      const canBypass =
+        message.member &&
+        message.member.permissions &&
+        typeof message.member.permissions.has === 'function'
+          ? message.member.permissions.has(PermissionFlagsBits.ManageMessages)
+          : false;
+
+      if (!canBypass) {
+        const embeds = Array.isArray(message.embeds) ? message.embeds : [];
+        const attachments = message.attachments;
+        const stickers = message.stickers;
+
+        const hasEmbeds = embeds.length > 0;
+        const hasAnyAttachment =
+          attachments && typeof attachments.size === 'number' ? attachments.size > 0 : false;
+        const hasSticker =
+          stickers && typeof stickers.size === 'number' ? stickers.size > 0 : false;
+
+        const getUrlExtension = (rawUrl) => {
+          if (typeof rawUrl !== 'string' || !rawUrl.trim()) return '';
+          try {
+            const u = new URL(rawUrl);
+            const pathname = u.pathname || '';
+            const idx = pathname.lastIndexOf('.');
+            if (idx === -1) return '';
+            return pathname.slice(idx + 1).toLowerCase();
+          } catch {
+            const clean = rawUrl.split('?')[0].split('#')[0];
+            const idx = clean.lastIndexOf('.');
+            if (idx === -1) return '';
+            return clean.slice(idx + 1).toLowerCase();
+          }
+        };
+
+        const attachmentHasContentTypePrefix = (attachment, prefix) => {
+          if (!attachment || typeof attachment !== 'object') return false;
+          const ct = typeof attachment.contentType === 'string' ? attachment.contentType : '';
+          return ct.toLowerCase().startsWith(prefix);
+        };
+
+        const attachmentHasExt = (attachment, exts) => {
+          if (!attachment || typeof attachment !== 'object') return false;
+          const url = typeof attachment.url === 'string' ? attachment.url : '';
+          const ext = getUrlExtension(url);
+          if (!ext) return false;
+          return exts.includes(ext);
+        };
+
+        const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tiff'];
+        const videoExts = ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'];
+
+        const attachmentValues =
+          attachments && typeof attachments.values === 'function'
+            ? Array.from(attachments.values())
+            : [];
+
+        const hasImageAttachment = attachmentValues.some(att =>
+          attachmentHasContentTypePrefix(att, 'image/') || attachmentHasExt(att, imageExts),
+        );
+
+        const hasVideoAttachment = attachmentValues.some(att =>
+          attachmentHasContentTypePrefix(att, 'video/') || attachmentHasExt(att, videoExts),
+        );
+
+        const getEmbedAssetUrl = (embed, kind) => {
+          if (!embed || typeof embed !== 'object') return '';
+          const data = embed.data && typeof embed.data === 'object' ? embed.data : embed;
+          const obj = data && typeof data[kind] === 'object' ? data[kind] : null;
+          return obj && typeof obj.url === 'string' ? obj.url : '';
+        };
+
+        const hasEmbedImage = embeds.some(embed =>
+          !!getEmbedAssetUrl(embed, 'image') || !!getEmbedAssetUrl(embed, 'thumbnail'),
+        );
+
+        const hasEmbedVideo = embeds.some(embed => !!getEmbedAssetUrl(embed, 'video'));
+
+        let ok = true;
+        if (requiredType === 'embed') ok = hasEmbeds;
+        else if (requiredType === 'image') ok = hasImageAttachment || hasEmbedImage;
+        else if (requiredType === 'video') ok = hasVideoAttachment || hasEmbedVideo;
+        else if (requiredType === 'attachment') ok = hasAnyAttachment;
+        else if (requiredType === 'sticker') ok = hasSticker;
+
+        if (!ok) {
+          try {
+            if (message.deletable) {
+              await message.delete();
+            }
+          } catch (error) {
+            console.error('[requireselect] Failed to delete non-matching message:', error);
+          }
+          return;
+        }
+      }
+    }
+
     const rawContent = message.content || '';
     const content = rawContent.toLowerCase();
 

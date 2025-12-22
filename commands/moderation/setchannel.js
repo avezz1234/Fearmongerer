@@ -144,6 +144,7 @@ module.exports = {
         .addChoices(
           { name: 'Command logs', value: 'command_logs' },
           { name: 'DM forwarding', value: 'dm_forwarding' },
+          { name: 'Roblox announcements', value: 'roblox_events' },
           { name: 'Current Configs', value: 'current_configs' },
         ),
     )
@@ -481,6 +482,7 @@ module.exports = {
     let label = kind;
     if (kind === 'command_logs') label = 'command log';
     if (kind === 'dm_forwarding') label = 'DM forwarding';
+    if (kind === 'roblox_events') label = 'Roblox announcements';
 
     await interaction.reply({
       content: `✅ Set ${label} channel to ${channel}.`,
