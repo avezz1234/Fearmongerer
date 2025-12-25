@@ -188,10 +188,10 @@ async function getTicketDecisionStatsForModerator(guild, moderatorId, { sinceMs 
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.BanMembers,
   data: new SlashCommandBuilder()
     .setName('ms_check')
     .setDescription('Check a moderator\'s ticket and moderation stats.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
     .setDMPermission(false)
     .addUserOption(option =>
       option

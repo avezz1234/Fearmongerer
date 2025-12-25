@@ -1,10 +1,10 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ModerateMembers,
   data: new SlashCommandBuilder()
     .setName('mute')
     .setDescription('Timeout a member for a period and DM them the reason.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .setDMPermission(false)
     .addUserOption(option =>
       option

@@ -1,10 +1,10 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageChannels,
   data: new SlashCommandBuilder()
     .setName('pull')
     .setDescription('Pull a user into this ticket channel by granting them access.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .setDMPermission(false)
     .addUserOption(option =>
       option

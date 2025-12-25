@@ -1,10 +1,10 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageRoles,
   data: new SlashCommandBuilder()
     .setName('channel_blacklist')
     .setDescription('Toggle a (CHANNEL) Blacklist role for a user, hiding a specific channel.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
     .setDMPermission(false)
     .addChannelOption(option =>
       option

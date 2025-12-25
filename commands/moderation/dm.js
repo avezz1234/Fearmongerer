@@ -1,10 +1,10 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ModerateMembers,
   data: new SlashCommandBuilder()
     .setName('dm')
     .setDescription('Send a DM to a user through the bot.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .setDMPermission(false)
     .addUserOption(option =>
       option

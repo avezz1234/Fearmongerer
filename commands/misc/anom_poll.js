@@ -19,7 +19,6 @@ function clampInt(value, { min, max }) {
 const data = new SlashCommandBuilder()
   .setName('anom_poll')
   .setDescription('Create an anonymous (hidden) poll with buttons and optional auto-close timer.')
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .setDMPermission(false)
   .addStringOption(option =>
     option
@@ -60,6 +59,7 @@ data.addIntegerOption(option =>
 );
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data,
 
   async execute(interaction) {

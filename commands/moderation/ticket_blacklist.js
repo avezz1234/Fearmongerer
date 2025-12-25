@@ -7,10 +7,10 @@ const {
 const TICKET_BLACKLIST_ROLE_NAME = 'Ticket Blacklist';
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageRoles,
   data: new SlashCommandBuilder()
     .setName('ticket_blacklist')
     .setDescription('Toggle the ticket blacklist role for a user.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
     .setDMPermission(false)
     .addUserOption(option =>
       option

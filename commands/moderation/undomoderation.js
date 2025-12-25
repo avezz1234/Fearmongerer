@@ -57,10 +57,10 @@ function saveModerations(store) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ModerateMembers,
   data: new SlashCommandBuilder()
     .setName('undomoderation')
     .setDescription('Undo a previous warn, kick, or ban by Moderation ID.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .setDMPermission(false)
     .addStringOption(option =>
       option

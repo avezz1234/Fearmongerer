@@ -1,10 +1,10 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageMessages,
   data: new SlashCommandBuilder()
     .setName('serverclear')
     .setDescription('Clear a user\'s messages across all channels in this server.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .setDMPermission(false)
     .addUserOption(option =>
       option

@@ -1,11 +1,11 @@
 const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder } = require('discord.js');
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageMessages,
   data: new SlashCommandBuilder()
     .setName('lock')
     .setDescription('Lock this channel for a duration to stop regular users from chatting.')
     .setDMPermission(false)
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .addIntegerOption(option =>
       option
         .setName('duration')

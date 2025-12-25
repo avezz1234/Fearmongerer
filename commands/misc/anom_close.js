@@ -12,10 +12,10 @@ function formatPercent(count, total) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data: new SlashCommandBuilder()
     .setName('anom_close')
     .setDescription('Close an anonymous poll and publish final results.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
     .addStringOption(option =>
       option

@@ -39,10 +39,10 @@ function generateModerationId() {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.BanMembers,
   data: new SlashCommandBuilder()
     .setName('ban')
     .setDescription('Ban a member and DM them the reason.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
     .setDMPermission(false)
     .addUserOption(option =>
       option

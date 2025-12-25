@@ -25,10 +25,10 @@ function loadModerationsSafe() {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ModerateMembers,
   data: new SlashCommandBuilder()
     .setName('inspect')
     .setDescription('Inspect a moderation record by Moderation ID.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .setDMPermission(false)
     .addStringOption(option =>
       option

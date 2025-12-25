@@ -39,10 +39,10 @@ function generateModerationId() {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.KickMembers,
   data: new SlashCommandBuilder()
     .setName('kick')
     .setDescription('Kick a member and DM them the reason.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers)
     .setDMPermission(false)
     .addUserOption(option =>
       option

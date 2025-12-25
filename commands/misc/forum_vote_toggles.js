@@ -34,10 +34,10 @@ function saveServersSafe(store) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data: new SlashCommandBuilder()
     .setName('forum_vote_toggles')
     .setDescription('Enable or disable forum auto-votes and backfill for this server.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
     .addBooleanOption(option =>
       option

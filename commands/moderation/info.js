@@ -123,10 +123,10 @@ function getNotesForMember(guildId, userId) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ModerateMembers,
   data: new SlashCommandBuilder()
     .setName('info')
     .setDescription('Show detailed moderation status, warnings, notes, and account info about a user.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .setDMPermission(false)
     .addUserOption(option =>
       option

@@ -1,10 +1,10 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require('discord.js');
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data: new SlashCommandBuilder()
     .setName('ticket_setup')
     .setDescription('Post the ticket creation panel in this channel.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
   async execute(interaction) {
     const channel = interaction.channel;

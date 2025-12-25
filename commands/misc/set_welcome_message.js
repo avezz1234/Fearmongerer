@@ -2,10 +2,10 @@ const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { setWelcomeMessageTemplate } = require('../../welcome_state');
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data: new SlashCommandBuilder()
     .setName('set_welcome_message')
     .setDescription('Set the custom welcome message template for this server.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
     .addStringOption(option =>
       option

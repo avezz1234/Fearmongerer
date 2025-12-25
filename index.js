@@ -46,6 +46,7 @@ const anonPollState = require('./anom_poll_state');
 const anonPollLib = require('./anom_poll_lib');
 const { sweepTsLeaderboards } = require('./ts_leaderboard_lib');
 const { getSelfRolePanel } = require('./selfrole_state');
+const commandPerms = require('./command_perms_state');
 
 async function handleAnonPollSelectMenu(interaction) {
   try {
@@ -1512,6 +1513,29 @@ client.on(Events.InteractionCreate, async interaction => {
 
     const command = interaction.client.commands.get(interaction.commandName);
 
+    const guildId = interaction.guildId;
+    const roleIds = [];
+    const rawRoles = interaction.member?.roles;
+    if (rawRoles?.cache && typeof rawRoles.cache.keys === 'function') {
+      roleIds.push(...rawRoles.cache.keys());
+    } else if (Array.isArray(rawRoles)) {
+      roleIds.push(...rawRoles);
+    } else if (Array.isArray(rawRoles?.roles)) {
+      roleIds.push(...rawRoles.roles);
+    }
+
+    const allowlisted = commandPerms.isCommandAllowed({
+      guildId,
+      userId: interaction.user?.id,
+      roleIds,
+      commandName: interaction.commandName,
+    });
+
+    if (allowlisted && interaction.memberPermissions && typeof interaction.memberPermissions.has === 'function') {
+      const originalHas = interaction.memberPermissions.has.bind(interaction.memberPermissions);
+      interaction.memberPermissions.has = (...args) => originalHas(...args) || true;
+    }
+
     if (!command) {
       console.warn(`No command matching ${interaction.commandName} was found.`);
 
@@ -1523,6 +1547,19 @@ client.on(Events.InteractionCreate, async interaction => {
       } catch {
         // ignore
       }
+      return;
+    }
+
+    const requiredPermissions = command.requiredPermissions;
+    if (
+      requiredPermissions &&
+      !allowlisted &&
+      (!interaction.memberPermissions || !interaction.memberPermissions.has(requiredPermissions))
+    ) {
+      await interaction.reply({
+        content: 'You do not have permission to use this command.',
+        ephemeral: true,
+      });
       return;
     }
 

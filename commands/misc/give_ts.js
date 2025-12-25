@@ -14,10 +14,10 @@ function clampInt(value, { min, max }) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.Administrator,
   data: new SlashCommandBuilder()
     .setName('give_ts')
     .setDescription('Give TS to a user (admin only).')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .setDMPermission(false)
     .addUserOption(option =>
       option

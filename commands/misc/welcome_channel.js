@@ -2,10 +2,10 @@ const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('disco
 const { setWelcomeChannelId, setWelcomeEnabled } = require('../../welcome_state');
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data: new SlashCommandBuilder()
     .setName('welcome_channel')
     .setDescription('Configure which channel join welcome messages are sent to.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
     .addChannelOption(option =>
       option

@@ -15,10 +15,10 @@ function clampInt(value, { min, max }) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data: new SlashCommandBuilder()
     .setName('mark_attendance')
     .setDescription('Manually mark a user as present for the active test session.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
     .addUserOption(option =>
       option

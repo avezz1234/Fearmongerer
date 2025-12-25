@@ -1,10 +1,10 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageMessages,
   data: new SlashCommandBuilder()
     .setName('purge')
     .setDescription('Clear a number of recent messages in a chosen channel.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .setDMPermission(false)
     .addIntegerOption(option =>
       option

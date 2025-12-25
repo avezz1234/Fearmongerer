@@ -48,10 +48,10 @@ async function scrubReactionsFromChannel(channel, targetUserId) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageMessages,
   data: new SlashCommandBuilder()
     .setName('react_scrub')
     .setDescription('Remove all reactions by a specific user across this server.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .setDMPermission(false)
     .addUserOption(option =>
       option

@@ -16,10 +16,10 @@ async function getTesterRole(guild) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data: new SlashCommandBuilder()
     .setName('ts_setup')
     .setDescription('Initialize TS tracking for all members with the tester role (does not wipe existing TS).')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
 
   async execute(interaction) {

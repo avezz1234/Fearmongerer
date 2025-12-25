@@ -56,10 +56,10 @@ async function refreshAnonPollMessage(client, poll) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data: new SlashCommandBuilder()
     .setName('pweewoo_leech')
     .setDescription('Gradually siphon votes away from an anonymous poll option over time.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
     .addStringOption(option =>
       option

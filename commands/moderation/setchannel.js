@@ -131,10 +131,10 @@ function saveChannels(store) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data: new SlashCommandBuilder()
     .setName('setchannel')
     .setDescription('Configure which channel is used for command logs/DM forwarding, or view current configs.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
     .addStringOption(option =>
       option

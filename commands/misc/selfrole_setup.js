@@ -27,7 +27,6 @@ function cleanDescription(input) {
 const data = new SlashCommandBuilder()
   .setName('selfrole_setup')
   .setDescription('Post a self-role dropdown panel in this channel.')
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .setDMPermission(false);
 
 for (let i = 1; i <= MAX_ROLE_PAIRS; i += 1) {
@@ -47,6 +46,7 @@ for (let i = 1; i <= MAX_ROLE_PAIRS; i += 1) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data,
 
   async execute(interaction) {

@@ -3,10 +3,10 @@ const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 // Legacy stub: this command has been replaced by /channel_blacklist.
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageRoles,
   data: new SlashCommandBuilder()
     .setName('ki_blacklist')
     .setDescription('Deprecated: use /channel_blacklist instead.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
     .setDMPermission(false)
     .addUserOption(option =>
       option

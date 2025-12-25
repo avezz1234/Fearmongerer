@@ -1,11 +1,11 @@
 const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder } = require('discord.js');
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageThreads,
   data: new SlashCommandBuilder()
     .setName('closepost')
     .setDescription('Lock this forum post to stop new replies, with an optional reason.')
     .setDMPermission(false)
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageThreads)
     .addStringOption(option =>
       option
         .setName('reason')

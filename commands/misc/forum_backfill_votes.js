@@ -31,10 +31,10 @@ function loadServersSafe() {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data: new SlashCommandBuilder()
     .setName('forum_backfill_votes')
     .setDescription('Backfill upvote/downvote reactions on existing forum posts.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
   async execute(interaction) {
     if (!interaction.guild) {

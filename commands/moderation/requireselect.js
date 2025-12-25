@@ -31,10 +31,10 @@ function resolveTargetChannel(interaction) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageMessages,
   data: new SlashCommandBuilder()
     .setName('requireselect')
     .setDescription('Require a specific kind of media in a channel (auto-deletes non-matching messages).')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .setDMPermission(false)
     .addSubcommand(subcommand =>
       subcommand

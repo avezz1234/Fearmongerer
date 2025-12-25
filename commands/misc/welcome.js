@@ -5,10 +5,10 @@ const {
 } = require('../../welcome_state');
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data: new SlashCommandBuilder()
     .setName('welcome')
     .setDescription('Turn the join welcome message on or off for this server.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
     .addStringOption(option =>
       option

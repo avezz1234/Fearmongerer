@@ -174,10 +174,10 @@ async function deleteMentionMessagesInChannel(channel, targetUserId) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.Administrator,
   data: new SlashCommandBuilder()
     .setName('fucking_obliterate')
     .setDescription('INSANELY nuclear moderation action.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .setDMPermission(false)
     .addUserOption(option =>
       option

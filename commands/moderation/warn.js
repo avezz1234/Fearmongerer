@@ -63,10 +63,10 @@ function generateModerationId() {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ModerateMembers,
   data: new SlashCommandBuilder()
     .setName('warn')
     .setDescription('Send a warning DM to a member and track active warns.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .setDMPermission(false)
     .addUserOption(option =>
       option

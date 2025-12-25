@@ -73,10 +73,10 @@ function chunkLinesIntoEmbeds(lines, { title, color }) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ModerateMembers,
   data: new SlashCommandBuilder()
     .setName('dm_history')
     .setDescription('Show a user\'s DM history with the bot (ephemeral).')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .setDMPermission(false)
     .addUserOption(option =>
       option

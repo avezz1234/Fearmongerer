@@ -10,10 +10,10 @@ const { dmTicketPresenter } = require('../../ticket_dm');
 const TICKET_DECISION_LOG_CHANNEL_ID = '1447705274243616809';
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageChannels,
   data: new SlashCommandBuilder()
     .setName('deny_ticket')
     .setDescription('Mark this ticket as denied, log the decision, and close this ticket channel.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .setDMPermission(false)
     .addStringOption(option =>
       option

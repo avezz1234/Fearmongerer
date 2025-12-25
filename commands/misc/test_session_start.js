@@ -190,10 +190,10 @@ async function getTesterRole(guild) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data: new SlashCommandBuilder()
     .setName('test_session_start')
     .setDescription('Announce a test session and track tester attendance in a voice channel.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
     .addChannelOption(option =>
       option

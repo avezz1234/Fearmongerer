@@ -36,10 +36,10 @@ function formatMemberList(lines) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageGuild,
   data: new SlashCommandBuilder()
     .setName('test_session_end')
     .setDescription('End the active test session and report tester attendance.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
   async execute(interaction) {
     if (!interaction.guild) {

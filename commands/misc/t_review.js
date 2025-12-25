@@ -48,10 +48,10 @@ function formatTicketSubmission(stored) {
 }
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageChannels,
   data: new SlashCommandBuilder()
     .setName('t_review')
     .setDescription('Review a ticket by its ID.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .setDMPermission(false)
     .addStringOption(option =>
       option

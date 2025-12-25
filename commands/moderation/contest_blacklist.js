@@ -4,10 +4,10 @@ const CONTEST_BLACKLIST_ROLE_NAME = 'Contest_Blacklist';
 const CONTEST_CATEGORY_ID = '1447210838212739072';
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageRoles,
   data: new SlashCommandBuilder()
     .setName('contest_blacklist')
     .setDescription('Toggle the Contest_Blacklist role for a user.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
     .setDMPermission(false)
     .addUserOption(option =>
       option

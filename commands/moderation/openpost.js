@@ -1,11 +1,11 @@
 const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder } = require('discord.js');
 
 module.exports = {
+  requiredPermissions: PermissionFlagsBits.ManageThreads,
   data: new SlashCommandBuilder()
     .setName('openpost')
     .setDescription('Unlock this forum post to allow new replies again.')
     .setDMPermission(false)
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageThreads)
     .addStringOption(option =>
       option
         .setName('reason')
